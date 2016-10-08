@@ -156,7 +156,7 @@ void OnHttpHeadersAvailable(const taiga::HttpClient& http_client) {
       }
       if (http_client.mode() == taiga::kHttpTaigaUpdateDownload) {
         DlgUpdate.SetDlgItemText(IDC_STATIC_UPDATE_PROGRESS,
-                                    L"Downloading latest update...");
+                                 L"Downloading latest update...");
       }
       break;
     default:
@@ -437,6 +437,12 @@ static bool AnimeListNeedsRefresh(const HistoryItem& history_item) {
          history_item.enable_rewatching;
 }
 
+static bool AnimeListNeedsResort() {
+  auto sort_column = DlgAnimeList.listview.TranslateColumnName(
+      Settings[taiga::kApp_List_SortColumn]);
+  return sort_column == kColumnUserLastUpdated;
+}
+
 void OnHistoryAddItem(const HistoryItem& history_item) {
   DlgHistory.RefreshList();
   DlgSearch.RefreshList();
@@ -448,6 +454,8 @@ void OnHistoryAddItem(const HistoryItem& history_item) {
     DlgAnimeList.RefreshTabs();
   } else {
     DlgAnimeList.RefreshListItem(history_item.anime_id);
+    if (AnimeListNeedsResort())
+      DlgAnimeList.listview.SortFromSettings();
   }
 
   if (!Taiga.logged_in) {
@@ -470,6 +478,8 @@ void OnHistoryChange(const HistoryItem* history_item) {
     DlgAnimeList.RefreshTabs();
   } else {
     DlgAnimeList.RefreshListItem(history_item->anime_id);
+    if (AnimeListNeedsResort())
+      DlgAnimeList.listview.SortFromSettings();
   }
 }
 
@@ -1008,12 +1018,16 @@ void OnUpdateAvailable() {
   DlgUpdateNew.Create(IDD_UPDATE_NEW, DlgUpdate.GetWindowHandle(), true);
 }
 
-void OnUpdateNotAvailable() {
+void OnUpdateNotAvailable(bool relations) {
   if (DlgMain.IsWindow()) {
     win::TaskDialog dlg(L"Update", TD_ICON_INFORMATION);
-    std::wstring footer = L"Current version: " + std::wstring(Taiga.version);
-    dlg.SetFooter(footer.c_str());
-    dlg.SetMainInstruction(L"No updates available. Taiga is up to date!");
+    dlg.SetMainInstruction(L"Taiga is up to date!");
+    std::wstring content = L"Current version: " + std::wstring(Taiga.version);
+    if (relations) {
+      content += L"\n\nUpdated anime relations to: " +
+                 Taiga.Updater.GetCurrentAnimeRelationsModified();
+    }
+    dlg.SetContent(content.c_str());
     dlg.AddButton(L"OK", IDOK);
     dlg.Show(DlgUpdate.GetWindowHandle());
   }
