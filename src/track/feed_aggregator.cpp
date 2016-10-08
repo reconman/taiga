@@ -336,17 +336,17 @@ void Aggregator::HandleFeedDownloadOpen(FeedItem& feed_item,
     }
   }
 
+  TrimRight(download_path, L"\\");  // gets mixed up as an escape character
+
   std::wstring parameters = L"\"" + file + L"\"";
   int show_command = SW_SHOWNORMAL;
 
   if (!download_path.empty()) {
     // uTorrent
     if (InStr(GetFileName(app_path), L"utorrent", 0, true) > -1) {
-      parameters = L"/directory \"" + download_path + L"\" " + parameters;
+      parameters = L"/directory \"" + download_path + L"\" \"" + file + L"\"";
     // Deluge
-    } else if (InStr(GetFileName(app_path), L"deluge", 0, true) > -1) {
-      app_path = GetPathOnly(app_path) + L"deluge-console.exe";
-      TrimRight(download_path, L"\\");  // gets mixed up as an escape character
+    } else if (InStr(GetFileName(app_path), L"deluge-console", 0, true) > -1) {
       parameters = L"add -p \\\"" + download_path + L"\\\" \\\"" + file + L"\\\"";
       show_command = SW_HIDE;
     } else {
@@ -373,6 +373,7 @@ bool Aggregator::ValidateFeedDownload(const HttpRequest& http_request,
 
   auto it = http_response.header.find(L"Content-Type");
   if (it != http_response.header.end()) {
+    const auto& content_type = it->second;
     static const std::vector<std::wstring> allowed_types{
       L"application/x-bittorrent",
       // The following MIME types are invalid for .torrent files, but we allow
@@ -383,9 +384,12 @@ bool Aggregator::ValidateFeedDownload(const HttpRequest& http_request,
       L"application/x-torrent",
     };
     if (std::find(allowed_types.begin(), allowed_types.end(),
-                  ToLower_Copy(it->second)) == allowed_types.end()) {
-      ui::OnFeedDownload(false, L"Invalid content type: " + it->second);
-      return false;
+                  ToLower_Copy(content_type)) == allowed_types.end()) {
+      it = http_response.header.find(L"Content-Disposition");
+      if (it == http_response.header.end()) {
+        ui::OnFeedDownload(false, L"Invalid content type: " + content_type);
+        return false;
+      }
     }
   }
 

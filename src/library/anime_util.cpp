@@ -78,6 +78,25 @@ bool IsFinishedAiring(const Item& item) {
   return GetDateJapan() > item.GetDateEnd();
 }
 
+int EstimateDuration(const Item& item) {
+  int duration = item.GetEpisodeLength();
+
+  if (duration <= 0) {
+    // Approximate duration in minutes
+    switch (item.GetType()) {
+      default:
+      case anime::kTv:      duration = 24; break;
+      case anime::kOva:     duration = 24; break;
+      case anime::kMovie:   duration = 90; break;
+      case anime::kSpecial: duration = 12; break;
+      case anime::kOna:     duration = 24; break;
+      case anime::kMusic:   duration =  5; break;
+    }
+  }
+
+  return duration;
+}
+
 int EstimateLastAiredEpisodeNumber(const Item& item) {
   // Can't estimate for other types of anime
   if (item.GetType() != kTv)
@@ -93,11 +112,13 @@ int EstimateLastAiredEpisodeNumber(const Item& item) {
     // we substract one more day.
     int date_diff = GetDateJapan() - date_start - 1;
     if (date_diff > -1) {
-      int number_of_weeks = date_diff / 7;
-      if (number_of_weeks < item.GetEpisodeCount()) {
+      const int episode_count = item.GetEpisodeCount();
+      const int number_of_weeks = date_diff / 7;
+      if (!IsValidEpisodeCount(episode_count) ||
+          number_of_weeks < episode_count) {
         return number_of_weeks + 1;
       } else {
-        return item.GetEpisodeCount();
+        return episode_count;
       }
     }
   }

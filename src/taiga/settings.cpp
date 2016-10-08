@@ -87,9 +87,9 @@ const std::wstring kDefaultFormatBalloon =
 const std::wstring kDefaultTorrentAppPath =
     L"C:\\Program Files\\uTorrent\\uTorrent.exe";
 const std::wstring kDefaultTorrentSearch =
-    L"http://www.nyaa.se/?page=rss&cats=1_37&filter=2&term=%title%";
+    L"https://www.nyaa.se/?page=rss&cats=1_37&filter=2&term=%title%";
 const std::wstring kDefaultTorrentSource =
-    L"http://tokyotosho.info/rss.php?filter=1,11&zwnj=0";
+    L"https://tokyotosho.info/rss.php?filter=1,11&zwnj=0";
 
 // Here we assume that anything less than 10 MiB can't be a valid episode.
 const ULONGLONG kDefaultFileSizeThreshold = 1024 * 1024 * 10;
@@ -112,6 +112,7 @@ void AppSettings::InitializeMap() {
   INITKEY(kSync_AutoOnStart, nullptr, L"account/myanimelist/login");
   INITKEY(kSync_Service_Mal_Username, nullptr, L"account/myanimelist/username");
   INITKEY(kSync_Service_Mal_Password, nullptr, L"account/myanimelist/password");
+  INITKEY(kSync_Service_Mal_UseHttps, L"true", L"account/myanimelist/https");
   INITKEY(kSync_Service_Hummingbird_Username, nullptr, L"account/hummingbird/username");
   INITKEY(kSync_Service_Hummingbird_Password, nullptr, L"account/hummingbird/password");
   INITKEY(kSync_Service_Hummingbird_UseHttps, L"true", L"account/hummingbird/https");
@@ -459,9 +460,18 @@ void AppSettings::ApplyChanges(const std::wstring& previous_service,
 }
 
 void AppSettings::HandleCompatibility() {
-  if (GetInt(kMeta_Version_Major) <= 1 &&
-      GetInt(kMeta_Version_Minor) <= 1 &&
-      GetInt(kMeta_Version_Revision) <= 7) {
+  const base::SemanticVersion version(
+      GetInt(kMeta_Version_Major),
+      GetInt(kMeta_Version_Minor),
+      GetInt(kMeta_Version_Revision));
+
+  if (version == Taiga.version)
+    return;
+
+  LOG(LevelWarning, L"Upgraded from v" + std::wstring(version) +
+                    L" to v" + std::wstring(Taiga.version));
+
+  if (version <= base::SemanticVersion(1, 1, 7)) {
     // Convert old password encoding to base64
     std::wstring password = SimpleDecrypt(GetWstr(kSync_Service_Mal_Password));
     Set(kSync_Service_Mal_Password, Base64Encode(password));
@@ -484,17 +494,13 @@ void AppSettings::HandleCompatibility() {
     }
   }
 
-  if (GetInt(kMeta_Version_Major) <= 1 &&
-      GetInt(kMeta_Version_Minor) <= 1 &&
-      GetInt(kMeta_Version_Revision) <= 8) {
+  if (version <= base::SemanticVersion(1, 1, 8)) {
     auto external_links = GetWstr(kApp_Interface_ExternalLinks);
     ReplaceString(external_links, L"http://hummingboard.me", L"http://hb.cybrox.eu");
     Set(kApp_Interface_ExternalLinks, external_links);
   }
 
-  if (GetInt(kMeta_Version_Major) <= 1 &&
-      GetInt(kMeta_Version_Minor) <= 1 &&
-      GetInt(kMeta_Version_Revision) <= 11) {
+  if (version <= base::SemanticVersion(1, 1, 11)) {
     bool detect_streaming_media = false;
     for (auto& media_player : MediaPlayers.items) {
       if (media_player.mode == kMediaModeWebBrowser) {
@@ -506,9 +512,7 @@ void AppSettings::HandleCompatibility() {
     Set(kRecognition_DetectStreamingMedia, detect_streaming_media);
   }
 
-  if (GetInt(kMeta_Version_Major) <= 1 &&
-      GetInt(kMeta_Version_Minor) <= 2 &&
-      GetInt(kMeta_Version_Revision) <= 2) {
+  if (version <= base::SemanticVersion(1, 2, 2)) {
     auto external_links = GetWstr(kApp_Interface_ExternalLinks);
     ReplaceString(external_links, L"http://mal.oko.im", L"http://graph.anime.plus");
     std::vector<std::wstring> link_vector;
@@ -528,6 +532,17 @@ void AppSettings::HandleCompatibility() {
     }
     external_links = Join(link_vector, L"\r\n");
     Set(kApp_Interface_ExternalLinks, external_links);
+  }
+
+  if (version <= base::SemanticVersion(1, 2, 3)) {
+    if (GetBool(kTorrent_Download_UseAnimeFolder)) {
+      auto app_path = GetWstr(kTorrent_Download_AppPath);
+      if (IsEqual(GetFileName(app_path), L"deluge.exe")) {
+        app_path = GetPathOnly(app_path) + L"deluge-console.exe";
+        Set(kTorrent_Download_AppPath, app_path);
+        LOG(LevelWarning, L"Changed BitTorrent client from deluge.exe to deluge-console.exe");
+      }
+    }
   }
 }
 

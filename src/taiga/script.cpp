@@ -16,6 +16,8 @@
 ** along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include <set>
+
 #include "base/string.h"
 #include "base/url.h"
 #include "library/anime_db.h"
@@ -35,8 +37,7 @@
 //   http://wiki.hydrogenaudio.org/index.php?title=Foobar2000:Title_Formatting_Reference
 //   http://help.mp3tag.de/main_scripting.html
 
-#define SCRIPT_FUNCTION_COUNT 21
-const wchar_t* script_functions[] = {
+static const std::set<std::wstring> script_functions = {
   L"and",
   L"cut",
   L"equal",
@@ -60,8 +61,7 @@ const wchar_t* script_functions[] = {
   L"upper"
 };
 
-#define SCRIPT_VARIABLE_COUNT 22
-const wchar_t* script_variables[] = {
+static const std::set<std::wstring> script_variables = {
   L"animeurl",
   L"audio",
   L"checksum",
@@ -322,19 +322,11 @@ std::wstring EvaluateFunction(const std::wstring& func_name,
 ////////////////////////////////////////////////////////////////////////////////
 
 bool IsScriptFunction(const std::wstring& str) {
-  for (int i = 0; i < SCRIPT_FUNCTION_COUNT; i++)
-    if (str == script_functions[i])
-      return true;
-
-  return false;
+  return script_functions.count(str) > 0;
 }
 
 bool IsScriptVariable(const std::wstring& str) {
-  for (int i = 0; i < SCRIPT_VARIABLE_COUNT; i++)
-    if (str == script_variables[i])
-      return true;
-
-  return false;
+  return script_variables.count(str) > 0;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -364,6 +356,10 @@ std::wstring ReplaceVariables(std::wstring str, const anime::Episode& episode,
   std::wstring episode_number = ToWstr(anime::GetEpisodeHigh(episode));
   TrimLeft(episode_number, L"0");
 
+  // Prepare folder
+  std::wstring folder = episode.folder;
+  TrimRight(folder, L"\\");
+
   // Replace variables
   int pos_var = 0;
   do {
@@ -390,7 +386,7 @@ std::wstring ReplaceVariables(std::wstring str, const anime::Episode& episode,
           REPLACE(L"audio", ENCODE(episode.audio_terms()));
           REPLACE(L"checksum", ENCODE(episode.file_checksum()));
           REPLACE(L"file", ENCODE(episode.file_name_with_extension()));
-          REPLACE(L"folder", ENCODE(episode.folder));
+          REPLACE(L"folder", ENCODE(folder));
           REPLACE(L"user", ENCODE(taiga::GetCurrentUsername()));
           REPLACE(L"manual", is_manual ? L"true" : L"");
           switch (Taiga.play_status) {
@@ -429,11 +425,14 @@ std::wstring ReplaceVariables(std::wstring str, const anime::Episode& episode,
   do {
     // Find non-escaped dollar sign
     pos_func = 0;
-    do {
+    while (true) {
       pos_func = InStr(str, L"$", pos_func);
-    } while (0 < pos_func &&
-             pos_func < str.length() &&
-             str[pos_func - 1] == '\\');
+      if (pos_func > 0 && str[pos_func - 1] == '\\') {
+        pos_func += 1;
+      } else {
+        break;
+      }
+    }
 
     if (pos_func > -1) {
       for (unsigned int i = pos_func; i < str.length(); i++) {
@@ -509,14 +508,20 @@ std::wstring EscapeScriptEntities(const std::wstring& str) {
 
 std::wstring UnescapeScriptEntities(const std::wstring& str) {
   std::wstring unescaped;
-  size_t entity_pos;
+  unescaped.reserve(str.size());
 
-  for (size_t pos = 0; pos <= str.length(); ) {
-    entity_pos = InStr(str, L"\\", pos);
-    if (entity_pos == -1)
-      entity_pos = str.length();
-    unescaped.append(str, pos, entity_pos - pos);
-    pos = entity_pos + 1;
+  for (auto it = str.begin(); it != str.end(); ++it) {
+    switch (*it) {
+      case '\\': {
+        auto next = std::next(it);
+        if (next != str.end() && *next == '\\')
+          unescaped.push_back(*next);
+        break;
+      }
+      default:
+        unescaped += *it;
+        break;
+    }
   }
 
   return unescaped;
