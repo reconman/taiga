@@ -161,11 +161,13 @@ void ExecuteAction(std::wstring action, WPARAM wParam, LPARAM lParam) {
     auto anime_item = AnimeDatabase.FindItem(anime_id);
     if (anime_item) {
       std::wstring title = anime_item->GetTitle();
-      ReplaceString(body, L"%title%", EncodeUrl(title));
+	  const std::vector<std::wstring> synonyms = anime_item->GetUserSynonyms();
+
+	  ReplaceString(body, L"%title%", EncodeUrl(synonyms.size() == 0 ? title : synonyms[0]));
 
 	  int last_watched_episode = anime_item->GetMyLastWatchedEpisode();
 	  if (last_watched_episode == 0 || anime_item->GetEpisodeCount() == 1) {
-		  //not watched yet or some OVA or movie with only 1 episode, search for general discussion
+		  //not watched yet or some OVA or movie with only 1 episode
 		  ReplaceString(body, L"%watched%", L"");
 	  }
 	  else {
