@@ -53,6 +53,10 @@ HttpClient::HttpClient(const HttpRequest& request)
   // Enable debug mode to log requests and responses
   set_debug_mode(Taiga.debug_mode);
 
+  // Disabling certificate revocation checks seems to work for those who get
+  // "SSL connect error". See issue #312 for more information.
+  set_no_revoke(Settings.GetBool(kApp_Connection_NoRevoke));
+
   // The default header (e.g. "User-Agent: Taiga/1.0") will be used, unless
   // another value is specified in the request header
   set_user_agent(
@@ -112,13 +116,32 @@ bool HttpClient::OnRedirect(const std::wstring& address, bool refresh) {
     }
   }
 
+  auto check_cloudflare = [](const base::http::Response& response) {
+    if (response.code >= 500) {
+      auto it = response.header.find(L"Server");
+      if (it != response.header.end() &&
+          InStr(it->second, L"cloudflare", 0, true) > -1) {
+        return true;
+      }
+    }
+    return false;
+  };
+
   if (refresh) {
-    HttpRequest http_request = request_;
-    http_request.uid = base::http::GenerateRequestId();
-    http_request.url = address;
-    ConnectionManager.MakeRequest(http_request, mode());
+    if (check_cloudflare(response_)) {
+      std::wstring error_text = L"Cannot connect to " + request_.url.host +
+                                L" because of Cloudflare DDoS protection";
+      LOG(LevelError, error_text + L"\nConnection mode: " + ToWstr(mode_));
+      ui::OnHttpError(*this, error_text);
+    } else {
+      HttpRequest http_request = request_;
+      http_request.uid = base::http::GenerateRequestId();
+      http_request.url = address;
+      ConnectionManager.MakeRequest(http_request, mode());
+    }
     Cancel();
     return true;
+
   } else {
     Url url(address);
     ConnectionManager.HandleRedirect(request_.url.host, url.host);

@@ -126,6 +126,8 @@ bool Client::SetRequestOptions() {
   // Set auto-redirect
   if (auto_redirect_) {
     TAIGA_CURL_SET_OPTION(CURLOPT_FOLLOWLOCATION, TRUE);
+    // "20" happens to be the number used by Chrome and Firefox
+    TAIGA_CURL_SET_OPTION(CURLOPT_MAXREDIRS, 20);
   }
 
   // Set method
@@ -172,6 +174,11 @@ bool Client::SetRequestOptions() {
   TAIGA_CURL_SET_OPTION(CURLOPT_SSL_VERIFYPEER, 0L);
   TAIGA_CURL_SET_OPTION(CURLOPT_SSL_VERIFYHOST, 0L);
 #endif
+
+  // Disable certificate revocation checks for the SSL backend
+  if (no_revoke_) {
+    TAIGA_CURL_SET_OPTION(CURLOPT_SSL_OPTIONS, CURLSSLOPT_NO_REVOKE);
+  }
 
   #undef TAIGA_CURL_SET_OPTION
 

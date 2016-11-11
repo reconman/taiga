@@ -306,7 +306,6 @@ BOOL SettingsPage::OnInitDialog() {
     // Torrents > Discovery
     case kSettingsPageTorrentsDiscovery: {
       AddComboString(IDC_COMBO_TORRENT_SOURCE, L"https://feeds.feedburner.com/anime-rss-atom-feeds?format=xml");
-      AddComboString(IDC_COMBO_TORRENT_SOURCE, L"https://feeds.feedburner.com/baka-updates?format=xml");
       AddComboString(IDC_COMBO_TORRENT_SOURCE, L"http://haruhichan.com/feed/feed.php?mode=rss");
       AddComboString(IDC_COMBO_TORRENT_SOURCE, L"https://tokyotosho.info/rss.php?filter=1,11&zwnj=0");
       AddComboString(IDC_COMBO_TORRENT_SOURCE, L"https://www.nyaa.se/?page=rss&cats=1_37&filter=0");
@@ -410,6 +409,7 @@ BOOL SettingsPage::OnInitDialog() {
     case kSettingsPageAdvanced: {
       parent->advanced_settings_.clear();
       parent->advanced_settings_.insert({
+        {taiga::kApp_Connection_NoRevoke, {L"", L"Application / Disable certificate revocation checks"}},
         {taiga::kSync_Notify_Format, {L"", L"Application / Episode notification format"}},
         {taiga::kApp_Connection_ProxyHost, {L"", L"Application / Proxy host"}},
         {taiga::kApp_Connection_ProxyPassword, {L"", L"Application / Proxy password"}},
