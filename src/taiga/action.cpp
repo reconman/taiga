@@ -181,13 +181,13 @@ void ExecuteAction(std::wstring action, WPARAM wParam, LPARAM lParam) {
 
 		  //check if not watched yet or some OVA or movie with only 1 episode
 		  if (last_watched_episode != 0 && anime_item->GetEpisodeCount() != 1) {
-			  watched = L"%20" + std::to_wstring(last_watched_episode);
+			  watched = L" " + std::to_wstring(last_watched_episode);
 		  }
 
 		  body = L"https://www.reddit.com/search?sort=new&amp;q=subreddit%3Aanime";
-		  body += L"%20title%3A%22%5BSpoilers%5D%20" + EncodeUrl(title) + watched + L"%22";
+		  body += EncodeUrl(L" title:\"[Spoilers] " + title + watched + L"\"");
 		  for (std::wstring const & synonym : synonyms) {
-			  body += L"%20OR%20title%3A%22%5BSpoilers%5D%20" + EncodeUrl(synonym) + watched + L"%22";
+			  body += EncodeUrl(L" OR title:\"[Spoilers] " + synonym + watched + L"\"");
 		  }
 	  }
 	  ExecuteLink(body);
