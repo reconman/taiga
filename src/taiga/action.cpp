@@ -156,26 +156,41 @@ void ExecuteAction(std::wstring action, WPARAM wParam, LPARAM lParam) {
   // URL(address)
   //   Opens a web page.
   //   lParam is an anime ID.
-  } else if (action == L"URL") {
-    int anime_id = static_cast<int>(lParam);
-    auto anime_item = AnimeDatabase.FindItem(anime_id);
-    if (anime_item) {
-      std::wstring title = anime_item->GetTitle();
-	  const std::vector<std::wstring> synonyms = anime_item->GetUserSynonyms();
-
-	  ReplaceString(body, L"%title%", EncodeUrl(synonyms.size() == 0 ? title : synonyms[0]));
-
-	  int last_watched_episode = anime_item->GetMyLastWatchedEpisode();
-	  if (last_watched_episode == 0 || anime_item->GetEpisodeCount() == 1) {
-		  //not watched yet or some OVA or movie with only 1 episode
-		  ReplaceString(body, L"%watched%", L"");
+  }
+  else if (action == L"URL") {
+	  int anime_id = static_cast<int>(lParam);
+	  auto anime_item = AnimeDatabase.FindItem(anime_id);
+	  if (anime_item) {
+		  std::wstring title = anime_item->GetTitle();
+		  ReplaceString(body, L"%title%", EncodeUrl(title));
 	  }
-	  else {
-		  ReplaceString(body, L"%watched%", std::to_wstring(last_watched_episode));
-	  }
-    }
-    ExecuteLink(body);
+	  ExecuteLink(body);
 
+  // Reddit()
+  //   Searches for discussions on reddit
+  //   lParam is an anime ID.
+  } else if (action == L"Reddit") {
+	  int anime_id = static_cast<int>(lParam);
+	  auto anime_item = AnimeDatabase.FindItem(anime_id);
+	  if (anime_item) {
+		  std::wstring title = anime_item->GetTitle();
+		  const std::vector<std::wstring> synonyms = anime_item->GetUserSynonyms();
+		  
+		  int last_watched_episode = anime_item->GetMyLastWatchedEpisode();
+		  std::wstring watched = L"";
+
+		  //check if not watched yet or some OVA or movie with only 1 episode
+		  if (last_watched_episode != 0 && anime_item->GetEpisodeCount() != 1) {
+			  watched = L"%20" + std::to_wstring(last_watched_episode);
+		  }
+
+		  body = L"https://www.reddit.com/search?sort=new&amp;q=subreddit%3Aanime";
+		  body += L"%20title%3A%22%5BSpoilers%5D%20" + EncodeUrl(title) + watched + L"%22";
+		  for (std::wstring const & synonym : synonyms) {
+			  body += L"%20OR%20title%3A%22%5BSpoilers%5D%20" + EncodeUrl(synonym) + watched + L"%22";
+		  }
+	  }
+	  ExecuteLink(body);
   //////////////////////////////////////////////////////////////////////////////
   // UI
 
