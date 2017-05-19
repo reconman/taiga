@@ -28,7 +28,6 @@ enum StreamingVideoProvider {
   kStreamUnknown = -1,
   kStreamFirst,
   kStreamAnimelab = kStreamFirst,
-  kStreamAnimesols,
   kStreamAnn,
   kStreamCrunchyroll,
   kStreamDaisuki,
@@ -289,7 +288,7 @@ std::wstring MediaPlayers::FromAutomationApi(HWND hwnd, int web_engine,
               element_text->Release();
             }
           }
-          if (!name.empty() && IntersectsWith(name, current_title())) {
+          if (IntersectsWith(name, current_title())) {
             // Tab is still open, just not active
             title = current_title();
             found_tab = true;
@@ -321,37 +320,37 @@ std::wstring MediaPlayers::FromAutomationApi(HWND hwnd, int web_engine,
   return title;
 }
 
-std::wstring MediaPlayers::GetTitleFromBrowser(HWND hwnd) {
+std::wstring MediaPlayers::GetTitleFromBrowser(
+    HWND hwnd, const MediaPlayer& media_player) {
   WebBrowserEngine web_engine = kWebEngineUnknown;
-
-  auto media_player = FindPlayer(current_player());
 
   // Get window title
   std::wstring title = GetWindowTitle(hwnd);
   EditTitle(title, media_player);
 
-  // Return current title if the same web page is still open
-  if (CurrentEpisode.anime_id > 0)
-    if (IntersectsWith(title, current_title()))
-      return current_title();
+  if (media_player.name == current_player_name()) {
+    // Return current title if the same web page is still open
+    if (CurrentEpisode.anime_id > 0)
+      if (IntersectsWith(title, current_title()))
+        return current_title();
 
-  // Delay operation to save some CPU
-  static int counter = 0;
-  if (counter < 5) {
-    counter++;
-    return current_title();
-  } else {
-    counter = 0;
+    // Delay operation to save some CPU cycles
+    static int counter = 0;
+    if (++counter < 5) {
+      return current_title();
+    } else {
+      counter = 0;
+    }
   }
 
   // Select web browser engine
-  if (media_player->engine == L"WebKit") {
+  if (media_player.engine == L"WebKit") {
     web_engine = kWebEngineWebkit;
-  } else if (media_player->engine == L"Gecko") {
+  } else if (media_player.engine == L"Gecko") {
     web_engine = kWebEngineGecko;
-  } else if (media_player->engine == L"Trident") {
+  } else if (media_player.engine == L"Trident") {
     web_engine = kWebEngineTrident;
-  } else if (media_player->engine == L"Presto") {
+  } else if (media_player.engine == L"Presto") {
     web_engine = kWebEnginePresto;
   } else {
     return std::wstring();
@@ -368,8 +367,6 @@ bool IsStreamSettingEnabled(StreamingVideoProvider stream_provider) {
   switch (stream_provider) {
     case kStreamAnimelab:
       return Settings.GetBool(taiga::kStream_Animelab);
-    case kStreamAnimesols:
-      return Settings.GetBool(taiga::kStream_Animesols);
     case kStreamAnn:
       return Settings.GetBool(taiga::kStream_Ann);
     case kStreamCrunchyroll:
@@ -396,23 +393,21 @@ bool MatchStreamUrl(StreamingVideoProvider stream_provider,
   switch (stream_provider) {
     case kStreamAnimelab:
       return InStr(url, L"animelab.com/player/") > -1;
-    case kStreamAnimesols:
-      return SearchRegex(url, L"animesols.com/videos/[0-9]+");
     case kStreamAnn:
       return SearchRegex(url, L"animenewsnetwork.com/video/[0-9]+");
     case kStreamCrunchyroll:
       return SearchRegex(url, L"crunchyroll\\.[a-z.]+/[^/]+/episode-[0-9]+.*-[0-9]+") ||
              SearchRegex(url, L"crunchyroll\\.[a-z.]+/[^/]+/.*-movie-[0-9]+");
     case kStreamDaisuki:
-      return InStr(url, L"daisuki.net/anime/watch/") > -1;
+      return SearchRegex(url, L"daisuki\\.net/[a-z]+/[a-z]+/anime/watch");
     case kStreamPlex:
       return SearchRegex(url,
           L"(?:(?:localhost|\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}):32400|plex.tv)/web/");
     case kStreamVeoh:
       return InStr(url, L"veoh.com/watch/") > -1;
     case kStreamViz:
-      return SearchRegex(url, L"viz.com/anime/streaming/[^/]+-episode-[0-9]+/") ||
-             SearchRegex(url, L"viz.com/anime/streaming/[^/]+-movie/");
+      return SearchRegex(url, L"viz.com/watch/streaming/[^/]+-episode-[0-9]+/") ||
+             SearchRegex(url, L"viz.com/watch/streaming/[^/]+-movie/");
     case kStreamWakanim:
       return SearchRegex(url, L"wakanim\\.tv/video(-premium)?/[^/]+/");
     case kStreamYoutube:
@@ -428,10 +423,6 @@ void CleanStreamTitle(StreamingVideoProvider stream_provider,
     // AnimeLab
     case kStreamAnimelab:
       EraseLeft(title, L"AnimeLab - ");
-      break;
-    // Anime Sols
-    case kStreamAnimesols:
-      EraseLeft(title, L"Anime Sols ");
       break;
     // Anime News Network
     case kStreamAnn:
@@ -469,7 +460,7 @@ void CleanStreamTitle(StreamingVideoProvider stream_provider,
       break;
     // Viz Anime
     case kStreamViz:
-      EraseLeft(title, L"VIZ.com - NEON ALLEY - ");
+      EraseRight(title, L" // VIZ");
       break;
     // Wakanim
     case kStreamWakanim:
@@ -510,6 +501,7 @@ std::wstring MediaPlayers::GetTitleFromStreamingMediaProvider(
   }
 
   // Clean-up title
+  EraseLeft(title, L"New Tab");
   CleanStreamTitle(stream_provider, title);
 
   return title;

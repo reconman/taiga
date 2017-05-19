@@ -35,6 +35,7 @@ enum AnimeListAction {
   kAnimeListActionOpenFolder,
   kAnimeListActionPlayNext,
   kAnimeListActionInfo,
+  kAnimeListActionPage,
 };
 
 enum AnimeListColumn {
@@ -86,6 +87,7 @@ public:
 
     LRESULT WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
+    void DrawAiringStatus(HDC hdc, RECT* rc, anime::Item& anime_item);
     void DrawProgressBar(HDC hdc, RECT* rc, int index, anime::Item& anime_item);
     void DrawProgressText(HDC hdc, RECT* rc, anime::Item& anime_item);
     void DrawScoreBox(HDC hdc, RECT* rc, int index, UINT uItemState, anime::Item& anime_item);

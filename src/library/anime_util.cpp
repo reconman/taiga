@@ -78,6 +78,25 @@ bool IsFinishedAiring(const Item& item) {
   return GetDateJapan() > item.GetDateEnd();
 }
 
+int EstimateDuration(const Item& item) {
+  int duration = item.GetEpisodeLength();
+
+  if (duration <= 0) {
+    // Approximate duration in minutes
+    switch (item.GetType()) {
+      default:
+      case anime::kTv:      duration = 24; break;
+      case anime::kOva:     duration = 24; break;
+      case anime::kMovie:   duration = 90; break;
+      case anime::kSpecial: duration = 12; break;
+      case anime::kOna:     duration = 24; break;
+      case anime::kMusic:   duration =  5; break;
+    }
+  }
+
+  return duration;
+}
+
 int EstimateLastAiredEpisodeNumber(const Item& item) {
   // Can't estimate for other types of anime
   if (item.GetType() != kTv)
@@ -93,11 +112,13 @@ int EstimateLastAiredEpisodeNumber(const Item& item) {
     // we substract one more day.
     int date_diff = GetDateJapan() - date_start - 1;
     if (date_diff > -1) {
-      int number_of_weeks = date_diff / 7;
-      if (number_of_weeks < item.GetEpisodeCount()) {
+      const int episode_count = item.GetEpisodeCount();
+      const int number_of_weeks = date_diff / 7;
+      if (!IsValidEpisodeCount(episode_count) ||
+          number_of_weeks < episode_count) {
         return number_of_weeks + 1;
       } else {
-        return item.GetEpisodeCount();
+        return episode_count;
       }
     }
   }
@@ -457,7 +478,7 @@ void AddToQueue(Item& item, const Episode& episode, bool change_status) {
 
   if (change_status) {
     // Move to completed
-    if (item.GetEpisodeCount() == *history_item.episode) {
+    if (item.GetEpisodeCount() == *history_item.episode && *history_item.episode > 0) {
       history_item.status = kCompleted;
       if (item.GetMyRewatching()) {
         history_item.enable_rewatching = FALSE;
@@ -484,14 +505,12 @@ void SetMyLastUpdateToNow(Item& item) {
 bool GetFansubFilter(int anime_id, std::vector<std::wstring>& groups) {
   bool found = false;
 
-  foreach_(i, Aggregator.filter_manager.filters) {
-    if (found) break;
-    foreach_(j, i->anime_ids) {
-      if (*j != anime_id) continue;
-      if (found) break;
-      foreach_(k, i->conditions) {
-        if (k->element == kFeedFilterElement_Episode_Group) {
-          groups.push_back(k->value);
+  for (const auto& filter : Aggregator.filter_manager.filters) {
+    if (std::find(filter.anime_ids.begin(), filter.anime_ids.end(),
+                  anime_id) != filter.anime_ids.end()) {
+      for (const auto& condition : filter.conditions) {
+        if (condition.element == kFeedFilterElement_Episode_Group) {
+          groups.push_back(condition.value);
           found = true;
         }
       }
@@ -503,19 +522,34 @@ bool GetFansubFilter(int anime_id, std::vector<std::wstring>& groups) {
 
 bool SetFansubFilter(int anime_id, const std::wstring& group_name) {
   // Check existing filters
-  foreach_(i, Aggregator.filter_manager.filters) {
-    foreach_(j, i->anime_ids) {
-      if (*j != anime_id) continue;
-      foreach_(k, i->conditions) {
-        if (k->element == kFeedFilterElement_Episode_Group) {
-          if (group_name.empty()) {
-            Aggregator.filter_manager.filters.erase(i);
-          } else {
-            k->value = group_name;
-          }
-          return true;
-        }
+  foreach_(filter, Aggregator.filter_manager.filters) {
+    auto id = std::find(
+        filter->anime_ids.begin(), filter->anime_ids.end(), anime_id);
+    if (id == filter->anime_ids.end())
+      continue;
+
+    auto condition = std::find_if(
+        filter->conditions.begin(), filter->conditions.end(),
+        [](const FeedFilterCondition& condition) {
+          return condition.element == kFeedFilterElement_Episode_Group;
+        });
+    if (condition == filter->conditions.end())
+      continue;
+
+    if (filter->anime_ids.size() > 1) {
+      filter->anime_ids.erase(id);
+      if (group_name.empty()) {
+        return true;
+      } else {
+        break;
       }
+    } else {
+      if (group_name.empty()) {
+        Aggregator.filter_manager.filters.erase(filter);
+      } else {
+        condition->value = group_name;
+      }
+      return true;
     }
   }
 
@@ -599,6 +633,22 @@ int GetEpisodeLow(const Episode& episode) {
   return episode.episode_number_range().first;
 }
 
+static std::wstring GetElementRange(anitomy::ElementCategory category,
+                                    const Episode& episode) {
+  const auto element_count = episode.elements().count(category);
+
+  if (element_count > 1) {
+    const auto range = episode.GetElementAsRange(category);
+    if (range.second > range.first)
+      return ToWstr(range.first) + L"-" + ToWstr(range.second);
+  }
+
+  if (element_count > 0)
+    return ToWstr(episode.GetElementAsInt(category));
+
+  return std::wstring();
+}
+
 std::wstring GetEpisodeRange(const Episode& episode) {
   if (IsEpisodeRange(episode))
     return ToWstr(GetEpisodeLow(episode)) + L"-" +
@@ -610,7 +660,11 @@ std::wstring GetEpisodeRange(const Episode& episode) {
   return std::wstring();
 }
 
-std::wstring GetEpisodeRange(const episode_number_range_t& range) {
+std::wstring GetVolumeRange(const Episode& episode) {
+  return GetElementRange(anitomy::kElementVolumeNumber, episode);
+}
+
+std::wstring GetEpisodeRange(const number_range_t& range) {
   if (range.second > range.first)
     return ToWstr(range.first) + L"-" + ToWstr(range.second);
 
@@ -635,6 +689,8 @@ bool IsAllEpisodesAvailable(const Item& item) {
 }
 
 bool IsEpisodeRange(const Episode& episode) {
+  if (episode.elements().count(anitomy::kElementEpisodeNumber) < 2)
+    return false;
   return GetEpisodeHigh(episode) > GetEpisodeLow(episode);
 }
 
@@ -734,11 +790,16 @@ void ChangeEpisode(int anime_id, int value) {
   if (!anime_item)
     return;
 
-  if (IsValidEpisodeNumber(value, anime_item->GetEpisodeCount())) {
-    Episode episode;
-    episode.set_episode_number(value);
-    AddToQueue(*anime_item, episode, true);
-  }
+  if (!IsValidEpisodeNumber(value, anime_item->GetEpisodeCount()))
+    return;
+
+  Episode episode;
+  episode.set_episode_number(value);
+
+  // Allow changing the status to Completed
+  bool change_status = value == anime_item->GetEpisodeCount() && value > 0;
+
+  AddToQueue(*anime_item, episode, change_status);
 }
 
 void DecrementEpisode(int anime_id) {
@@ -790,6 +851,17 @@ void GetAllTitles(int anime_id, std::vector<std::wstring>& titles) {
     insert_title(synonym);
 }
 
+// TODO: We may get rid of this function once MAL fixes their API
+int GetMyRewatchedTimes(const Item& item) {
+  const int rewatched_times = item.GetMyRewatchedTimes();
+
+  if (item.GetMyRewatching()) {
+    return max(rewatched_times, 1);  // because MAL doesn't tell us the actual value
+  } else {
+    return rewatched_times;
+  }
+}
+
 void GetProgressRatios(const Item& item, float& ratio_aired, float& ratio_watched) {
   ratio_aired = 0.0f;
   ratio_watched = 0.0f;
@@ -798,7 +870,7 @@ void GetProgressRatios(const Item& item, float& ratio_aired, float& ratio_watche
   int eps_watched = item.GetMyLastWatchedEpisode(true);
 
   if (eps_watched > eps_aired)
-    eps_aired = -1;
+    eps_aired = eps_watched;
   if (eps_watched == 0)
     eps_watched = -1;
 
@@ -816,8 +888,9 @@ void GetProgressRatios(const Item& item, float& ratio_aired, float& ratio_watche
       ratio_watched = eps_aired == -1 ? 0.8f : eps_watched / (eps_aired / ratio_aired);
   }
 
-  if (ratio_watched > 1.0f)  // Watched episodes is greater than total episodes
-    ratio_watched = 1.0f;
+  // Limit values so that they don't exceed total episodes
+  ratio_aired = min(ratio_aired, 1.0f);
+  ratio_watched = min(ratio_watched, 1.0f);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

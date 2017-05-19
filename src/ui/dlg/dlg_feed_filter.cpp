@@ -17,6 +17,7 @@
 */
 
 #include "base/foreach.h"
+#include "base/gfx.h"
 #include "base/string.h"
 #include "library/anime_db.h"
 #include "library/anime_util.h"
@@ -253,8 +254,8 @@ BOOL FeedFilterDialog::DialogPage0::OnInitDialog() {
   preset_list.InsertGroup(0, L"Presets", true, false);
 
   // Insert list columns
-  preset_list.InsertColumn(0, 200, 200, 0, L"Title");
-  preset_list.InsertColumn(1, 350, 350, 0, L"Details");
+  preset_list.InsertColumn(0, ScaleX(200), ScaleX(200), 0, L"Title");
+  preset_list.InsertColumn(1, ScaleX(350), ScaleX(350), 0, L"Details");
 
   // Enable tile view
   SIZE size = {660, 40};
@@ -361,14 +362,14 @@ BOOL FeedFilterDialog::DialogPage1::OnInitDialog() {
   condition_list.SetImageList(ui::Theme.GetImageList16().GetHandle());
   condition_list.SetTheme();
   // Insert list columns
-  condition_list.InsertColumn(0, 170, 170, 0, L"Element");
-  condition_list.InsertColumn(1, 170, 170, 0, L"Operator");
-  condition_list.InsertColumn(2, 170, 170, 0, L"Value");
+  condition_list.InsertColumn(0, ScaleX(170), ScaleX(170), 0, L"Element");
+  condition_list.InsertColumn(1, ScaleX(170), ScaleX(170), 0, L"Operator");
+  condition_list.InsertColumn(2, ScaleX(170), ScaleX(170), 0, L"Value");
   condition_list.SetColumnWidth(2, LVSCW_AUTOSIZE_USEHEADER);
 
   // Initialize toolbar
   condition_toolbar.Attach(GetDlgItem(IDC_TOOLBAR_FEED_FILTER));
-  condition_toolbar.SetImageList(ui::Theme.GetImageList16().GetHandle(), 16, 16);
+  condition_toolbar.SetImageList(ui::Theme.GetImageList16().GetHandle(), ScaleX(16), ScaleY(16));
   condition_toolbar.SendMessage(TB_SETEXTENDEDSTYLE, 0, TBSTYLE_EX_MIXEDBUTTONS);
   // Add toolbar items
   BYTE fsState1 = TBSTATE_ENABLED | TBSTATE_WRAP;
@@ -480,7 +481,7 @@ LRESULT FeedFilterDialog::DialogPage1::OnNotify(int idCtrl, LPNMHDR pnmh) {
         }
         // Key press
         case LVN_KEYDOWN: {
-          LPNMLVKEYDOWN pnkd = reinterpret_cast<LPNMLVKEYDOWN>(pnmh);
+          auto pnkd = reinterpret_cast<LPNMLVKEYDOWN>(pnmh);
           switch (pnkd->wVKey) {
             // Delete condition
             case VK_DELETE:

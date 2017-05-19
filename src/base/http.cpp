@@ -24,11 +24,7 @@ namespace base {
 namespace http {
 
 Request::Request()
-    : method(L"GET"), parameter(0) {
-  // Each HTTP request must have a unique ID, as there are many parts of the
-  // application that rely on this assumption.
-  static unsigned int counter = 0;
-  uid = L"taiga-http-" + PadChar(ToWstr(counter++), L'0', 10);
+    : method(L"GET"), parameter(0), uid(GenerateRequestId()) {
 }
 
 Response::Response()
@@ -49,6 +45,13 @@ void Response::Clear() {
   body.clear();
 }
 
+std::wstring GenerateRequestId() {
+  // Each HTTP request must have a unique ID, as there are many parts of the
+  // application that rely on this assumption.
+  static unsigned int counter = 0;
+  return L"taiga-http-" + PadChar(ToWstr(counter++), L'0', 10);
+}
+
 Client::Client(const Request& request)
     : allow_reuse_(false),
       auto_redirect_(true),
@@ -60,6 +63,7 @@ Client::Client(const Request& request)
       curl_handle_(nullptr),
       debug_mode_(false),
       header_list_(nullptr),
+      no_revoke_(false),
       request_(request),
       user_agent_(L"Mozilla/5.0") {
 }
@@ -120,6 +124,10 @@ bool Client::busy() const {
   return busy_;
 }
 
+bool Client::no_revoke() const {
+  return no_revoke_;
+}
+
 const Request& Client::request() const {
   return request_;
 }
@@ -146,6 +154,10 @@ void Client::set_auto_redirect(bool enabled) {
 
 void Client::set_debug_mode(bool enabled) {
   debug_mode_ = enabled;
+}
+
+void Client::set_no_revoke(bool enabled) {
+  no_revoke_ = enabled;
 }
 
 void Client::set_proxy(const std::wstring& host,

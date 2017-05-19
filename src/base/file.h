@@ -31,18 +31,20 @@ std::wstring GetFileLastModifiedDate(const std::wstring& path);
 QWORD GetFileSize(const std::wstring& path);
 QWORD GetFolderSize(const std::wstring& path, bool recursive);
 
-bool Execute(const std::wstring& path, const std::wstring& parameters = L"");
+bool Execute(const std::wstring& path, const std::wstring& parameters = L"", int show_command = SW_SHOWNORMAL);
 bool ExecuteFile(const std::wstring& path, std::wstring parameters = L"");
 void ExecuteLink(const std::wstring& link);
 
 bool CreateFolder(const std::wstring& path);
 int DeleteFolder(std::wstring path);
 
+void ConvertToLongPath(std::wstring& path);
 std::wstring GetExtendedLengthPath(const std::wstring& path);
 bool IsDirectory(const WIN32_FIND_DATA& find_data);
 bool IsHiddenFile(const WIN32_FIND_DATA& find_data);
 bool IsSystemFile(const WIN32_FIND_DATA& find_data);
 bool IsValidDirectory(const WIN32_FIND_DATA& find_data);
+bool TranslateDeviceName(std::wstring& path);
 
 bool FileExists(const std::wstring& file);
 bool FolderExists(const std::wstring& folder);

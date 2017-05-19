@@ -90,6 +90,8 @@ public:
   LPARAM parameter;
 };
 
+std::wstring GenerateRequestId();
+
 ////////////////////////////////////////////////////////////////////////////////
 
 class CurlGlobal {
@@ -114,6 +116,7 @@ public:
 
   bool allow_reuse() const;
   bool busy() const;
+  bool no_revoke() const;
   const Request& request() const;
   const Response& response() const;
   curl_off_t content_length() const;
@@ -122,6 +125,7 @@ public:
   void set_allow_reuse(bool allow);
   void set_auto_redirect(bool enabled);
   void set_debug_mode(bool enabled);
+  void set_no_revoke(bool enabled);
   void set_proxy(
       const std::wstring& host,
       const std::wstring& username,
@@ -133,7 +137,7 @@ public:
   virtual bool OnHeadersAvailable() { return false; }
   virtual bool OnProgress() { return false; }
   virtual void OnReadComplete() {}
-  virtual bool OnRedirect(const std::wstring& address) { return false; }
+  virtual bool OnRedirect(const std::wstring& address, bool refresh) { return false; }
 
   DWORD ThreadProc();
 
@@ -148,6 +152,7 @@ protected:
 
   bool allow_reuse_;
   bool auto_redirect_;
+  bool no_revoke_;
   std::wstring proxy_host_;
   std::wstring proxy_password_;
   std::wstring proxy_username_;

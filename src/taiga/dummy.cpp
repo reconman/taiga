@@ -39,7 +39,7 @@ void DummyAnime::Initialize() {
   SetAiringStatus(anime::kFinishedAiring);
   SetDateStart(Date(2008, 10, 01));
   SetDateEnd(Date(2009, 03, 25));
-  SetImageUrl(L"http://cdn.myanimelist.net/images/anime/5/22125.jpg");
+  SetImageUrl(L"https://myanimelist.cdn-dena.com/images/anime/13/22128.jpg");
   AddtoUserList();
   SetMyLastWatchedEpisode(25);
   SetMyScore(10);
@@ -56,7 +56,7 @@ void DummyEpisode::Initialize() {
 
   Meow.Parse(L"D:\\Anime\\Toradora!\\"
              L"[TaigaSubs]_Toradora!_-_01v2_-_Tiger_and_Dragon_[DVD][1280x720_H264_AAC][ABCD1234].mkv",
-             *this, parse_options);
+             parse_options, *this);
 }
 
 }  // namespace taiga

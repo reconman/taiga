@@ -234,17 +234,20 @@ void Database::ClearInvalidItems() {
 }
 
 bool Database::DeleteItem(int id) {
+  std::wstring title;
+
+  auto anime_item = FindItem(id, false);
+  if (anime_item)
+    title = anime_item->GetTitle();
+
   if (items.erase(id) > 0) {
-    LOG(LevelWarning, L"ID: " + ToWstr(id));
+    LOG(LevelWarning, L"ID: " + ToWstr(id) + L" | Title: " + title);
 
     auto delete_history_items = [](int id, std::vector<HistoryItem>& items) {
-      for (auto it = items.begin(); it != items.end(); ) {
-        if (it->anime_id == id) {
-          items.erase(it++);
-        } else {
-          ++it;
-        }
-      }
+      items.erase(std::remove_if(items.begin(), items.end(),
+          [&id](const HistoryItem& item) {
+            return item.anime_id == id;
+          }), items.end());
     };
 
     delete_history_items(id, History.items);
@@ -256,7 +259,7 @@ bool Database::DeleteItem(int id) {
     if (CurrentEpisode.anime_id == id)
       CurrentEpisode.Set(anime::ID_UNKNOWN);
 
-    ui::OnAnimeDelete(id);
+    ui::OnAnimeDelete(id, title);
     return true;
   }
 
@@ -267,7 +270,7 @@ int Database::UpdateItem(const Item& new_item) {
   Item* item = nullptr;
 
   for (enum_t i = sync::kTaiga; i <= sync::kLastService; i++) {
-    item = FindItem(new_item.GetId(i), i);
+    item = FindItem(new_item.GetId(i), i, false);
     if (item)
       break;
   }
@@ -505,6 +508,12 @@ void Database::AddToList(int anime_id, int status) {
   if (!anime_item || anime_item->IsInList())
     return;
 
+  if (taiga::GetCurrentUsername().empty()) {
+    ui::ChangeStatusText(
+        L"Please set up your account before adding anime to your list.");
+    return;
+  }
+
   if (status == anime::kUnknownStatus)
     status = anime::IsAiredYet(*anime_item) ? anime::kWatching :
                                               anime::kPlanToWatch;
@@ -523,6 +532,7 @@ void Database::AddToList(int anime_id, int status) {
   history_item.mode = taiga::kHttpServiceAddLibraryEntry;
   History.queue.Add(history_item);
 
+  SaveDatabase();
   SaveList();
 
   ui::OnLibraryEntryAdd(anime_id);
@@ -626,37 +636,8 @@ bool Database::CheckOldUserDirectory() {
   return true;
 }
 
-void Database::ClearInvalidValues(Item& item) {
-  const std::wstring invalid_title = L"S"L"S"L"J"L"Master";
-  const std::wstring invalid_description =
-      L"Prepare yourself for another 9001 action-packed episodes";
-
-  if (item.GetEnglishTitle() == invalid_title)
-    item.SetEnglishTitle(L"");
-
-  auto synonyms = item.GetSynonyms();
-  if (!synonyms.empty()) {
-    foreach_(synonym, synonyms) {
-      if (*synonym == invalid_title)
-        *synonym = L"";
-    }
-    RemoveEmptyStrings(synonyms);
-    item.SetSynonyms(synonyms);
-  }
-
-  if (StartsWith(item.GetSynopsis(), invalid_description))
-    item.SetSynopsis(L"");
-}
-
 void Database::HandleCompatibility(const std::wstring& meta_version) {
   base::SemanticVersion version = meta_version;
-
-  if (version <= base::SemanticVersion(L"1.1.7")) {
-    LOG(LevelWarning, L"Clearing invalid values");
-    foreach_(item, items) {
-      ClearInvalidValues(item->second);
-    }
-  }
 
   if (version <= base::SemanticVersion(L"1.1.11")) {
     if (taiga::GetCurrentServiceId() == sync::kHummingbird) {

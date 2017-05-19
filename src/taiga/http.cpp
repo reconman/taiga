@@ -22,6 +22,7 @@
 #include "base/string.h"
 #include "base/url.h"
 #include "library/anime_util.h"
+#include "library/discover.h"
 #include "library/resource.h"
 #include "sync/manager.h"
 #include "taiga/announce.h"
@@ -47,10 +48,14 @@ HttpClient::HttpClient(const HttpRequest& request)
     : base::http::Client(request),
       mode_(kHttpSilent) {
   // Reuse existing connections
-  set_allow_reuse(true);
+  set_allow_reuse(Settings.GetBool(kApp_Connection_ReuseActive));
 
   // Enable debug mode to log requests and responses
   set_debug_mode(Taiga.debug_mode);
+
+  // Disabling certificate revocation checks seems to work for those who get
+  // "SSL connect error". See issue #312 for more information.
+  set_no_revoke(Settings.GetBool(kApp_Connection_NoRevoke));
 
   // The default header (e.g. "User-Agent: Taiga/1.0") will be used, unless
   // another value is specified in the request header
@@ -99,7 +104,7 @@ bool HttpClient::OnHeadersAvailable() {
   return false;
 }
 
-bool HttpClient::OnRedirect(const std::wstring& address) {
+bool HttpClient::OnRedirect(const std::wstring& address, bool refresh) {
   LOG(LevelDebug, L"Redirecting... (" + address + L")");
 
   switch (mode()) {
@@ -111,10 +116,37 @@ bool HttpClient::OnRedirect(const std::wstring& address) {
     }
   }
 
-  Url url(address);
-  ConnectionManager.HandleRedirect(request_.url.host, url.host);
+  auto check_cloudflare = [](const base::http::Response& response) {
+    if (response.code >= 500) {
+      auto it = response.header.find(L"Server");
+      if (it != response.header.end() &&
+          InStr(it->second, L"cloudflare", 0, true) > -1) {
+        return true;
+      }
+    }
+    return false;
+  };
 
-  return false;
+  if (refresh) {
+    if (check_cloudflare(response_)) {
+      std::wstring error_text = L"Cannot connect to " + request_.url.host +
+                                L" because of Cloudflare DDoS protection";
+      LOG(LevelError, error_text + L"\nConnection mode: " + ToWstr(mode_));
+      ui::OnHttpError(*this, error_text);
+    } else {
+      HttpRequest http_request = request_;
+      http_request.uid = base::http::GenerateRequestId();
+      http_request.url = address;
+      ConnectionManager.MakeRequest(http_request, mode());
+    }
+    Cancel();
+    return true;
+
+  } else {
+    Url url(address);
+    ConnectionManager.HandleRedirect(request_.url.host, url.host);
+    return false;
+  }
 }
 
 bool HttpClient::OnProgress() {
@@ -213,6 +245,21 @@ void HttpManager::HandleResponse(HttpResponse& response) {
       break;
     }
 
+    case kHttpSeasonsGet: {
+      auto filename = GetFileName(client.request().url.path);
+      auto path = GetPath(kPathDatabaseSeason) + filename;
+      if (SaveToFile(client.write_buffer_, path) &&
+          SeasonDatabase.LoadFile(filename)) {
+        Settings.Set(taiga::kApp_Seasons_LastSeason,
+                     SeasonDatabase.current_season.GetString());
+        SeasonDatabase.Review();
+        ui::OnSeasonLoad(SeasonDatabase.IsRefreshRequired());
+      } else {
+        ui::OnSeasonLoadFail();
+      }
+      break;
+    }
+
     case kHttpTwitterRequest:
     case kHttpTwitterAuth:
     case kHttpTwitterPost:
@@ -220,14 +267,18 @@ void HttpManager::HandleResponse(HttpResponse& response) {
       break;
 
     case kHttpTaigaUpdateCheck: {
-      if (Taiga.Updater.ParseData(response.body))
-        if (Taiga.Updater.IsDownloadAllowed())
+      if (Taiga.Updater.ParseData(response.body)) {
+        if (Taiga.Updater.IsUpdateAvailable()) {
+          ui::OnUpdateAvailable();
           break;
-      ui::OnUpdateFinished();
-      auto it = client.request().url.query.find(L"check");
-      if (it != client.request().url.query.end())
-        if (it->second == L"manual")
+        }
+        if (Taiga.Updater.IsAnimeRelationsAvailable()) {
           Taiga.Updater.CheckAnimeRelations();
+          break;
+        }
+        ui::OnUpdateNotAvailable();
+      }
+      ui::OnUpdateFinished();
       break;
     }
     case kHttpTaigaUpdateDownload:
@@ -239,10 +290,13 @@ void HttpManager::HandleResponse(HttpResponse& response) {
       if (Meow.ReadRelations(client.write_buffer_) &&
           SaveToFile(client.write_buffer_, GetPath(kPathDatabaseAnimeRelations))) {
         LOG(LevelDebug, L"Updated anime relation data.");
+        ui::OnUpdateNotAvailable(true);
       } else {
         Meow.ReadRelations();
         LOG(LevelDebug, L"Anime relation data update failed.");
+        ui::OnUpdateNotAvailable(false);
       }
+      ui::OnUpdateFinished();
       break;
   }
 

@@ -51,16 +51,18 @@ struct MatchOptions {
 
 class Engine {
 public:
-  bool Parse(std::wstring title, anime::Episode& episode, const ParseOptions& parse_options) const;
+  bool Parse(std::wstring filename, const ParseOptions& parse_options, anime::Episode& episode) const;
   int Identify(anime::Episode& episode, bool give_score, const MatchOptions& match_options);
   bool Search(const std::wstring& title, std::vector<int>& anime_ids);
 
   void InitializeTitles();
-  void UpdateTitles(const anime::Item& anime_item);
+  void UpdateTitles(const anime::Item& anime_item, bool erase_ids = false);
 
   sorted_scores_t GetScores() const;
 
+  bool IsBatchRelease(const anime::Episode& episode) const;
   bool IsValidAnimeType(const anime::Episode& episode) const;
+  bool IsValidAnimeType(const std::wstring& path) const;
   bool IsValidFileExtension(const anime::Episode& episode) const;
   bool IsValidFileExtension(const std::wstring& extension) const;
 
@@ -69,19 +71,27 @@ public:
   bool SearchEpisodeRedirection(int id, const std::pair<int, int>& range, int& destination_id, std::pair<int, int>& destination_range) const;
 
 private:
+  enum NormalizationType {
+    kNormalizeMinimal,
+    kNormalizeForTrigrams,
+    kNormalizeForLookup,
+    kNormalizeFull,
+  };
+
   bool ValidateOptions(anime::Episode& episode, int anime_id, const MatchOptions& match_options, bool redirect) const;
   bool ValidateOptions(anime::Episode& episode, const anime::Item& anime_item, const MatchOptions& match_options, bool redirect) const;
   bool ValidateEpisodeNumber(anime::Episode& episode, const anime::Item& anime_item, const MatchOptions& match_options, bool redirect) const;
 
   int LookUpTitle(std::wstring title, std::set<int>& anime_ids) const;
   bool GetTitleFromPath(anime::Episode& episode);
+  void ExtendAnimeTitle(anime::Episode& episode) const;
 
   int ScoreTitle(anime::Episode& episode, const std::set<int>& anime_ids, const MatchOptions& match_options);
   int ScoreTitle(const std::wstring& str, const anime::Episode& episode, const scores_t& trigram_results);
 
   void Normalize(std::wstring& title, int type, bool normalized_before) const;
   void NormalizeUnicode(std::wstring& str) const;
-  void ErasePunctuation(std::wstring& str, int type) const;
+  void ErasePunctuation(std::wstring& str, int type, bool modified_tail) const;
   void EraseUnnecessary(std::wstring& str) const;
   void ConvertOrdinalNumbers(std::wstring& str) const;
   void ConvertRomanNumbers(std::wstring& str) const;

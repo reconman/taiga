@@ -98,9 +98,11 @@ public:
   BOOL       DragLeave(HWND hwnd_lock);
   BOOL       DragMove(int x, int y);
   BOOL       Draw(int index, HDC hdc, int x, int y);
+  void       Duplicate(HIMAGELIST image_list);
   VOID       EndDrag();
   HIMAGELIST GetHandle();
   HICON      GetIcon(int index);
+  BOOL       GetIconSize(int& cx, int& cy);
   BOOL       Remove(int index);
   VOID       SetHandle(HIMAGELIST image_list);
 
@@ -157,6 +159,7 @@ public:
   void       SelectItem(int index, bool selected = true);
   BOOL       SetBkImage(HBITMAP bitmap, ULONG flags = LVBKIF_TYPE_WATERMARK, int offset_x = 100, int offset_y = 100);
   void       SetCheckState(int index, BOOL check);
+  BOOL       SetColumnOrderArray(int count, int* order_array);
   BOOL       SetColumnWidth(int column, int cx);
   void       SetExtendedStyle(DWORD ex_style);
   int        SetGroupText(int index, LPCWSTR text);
@@ -377,7 +380,8 @@ public:
   virtual ~Tooltip() {}
 
   BOOL AddTip(UINT id, LPCWSTR text, LPCWSTR title, LPRECT rect, bool window_id);
-  BOOL DeleteTip(UINT id);
+  void DeleteTip(UINT id);
+  void NewToolRect(UINT id, LPRECT rect);
   void SetDelayTime(long autopop, long initial, long reshow);
   void SetMaxWidth(long width);
   void UpdateText(UINT id, LPCWSTR text);

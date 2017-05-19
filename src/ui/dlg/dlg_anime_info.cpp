@@ -189,6 +189,19 @@ LRESULT AnimeDialog::ImageLabel::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
   return WindowProcDefault(hwnd, uMsg, wParam, lParam);
 }
 
+LRESULT AnimeDialog::EditTitle::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+  switch (uMsg) {
+    case WM_SETFOCUS: {
+      WindowProcDefault(hwnd, uMsg, wParam, lParam);
+      SetSel(0, 0);
+      HideCaret();
+      return 0;
+    }
+  }
+
+  return WindowProcDefault(hwnd, uMsg, wParam, lParam);
+}
+
 BOOL AnimeDialog::OnCommand(WPARAM wParam, LPARAM lParam) {
   if (LOWORD(wParam) == IDC_STATIC_ANIME_IMG &&
       HIWORD(wParam) == STN_CLICKED) {
@@ -419,6 +432,10 @@ void AnimeDialog::GoToNextTab() {
   GoToPreviousTab();
 }
 
+int AnimeDialog::GetMode() const {
+  return mode_;
+}
+
 int AnimeDialog::GetCurrentId() const {
   return anime_id_;
 }
@@ -442,48 +459,74 @@ void AnimeDialog::SetCurrentId(int anime_id) {
 }
 
 void AnimeDialog::SetCurrentPage(int index) {
+  const auto previous_page = current_page_;
   current_page_ = index;
+
+  if (!IsWindow())
+    return;
 
   auto anime_item = AnimeDatabase.FindItem(anime_id_);
   bool anime_in_list = anime_item && anime_item->IsInList();
 
-  if (IsWindow()) {
-    switch (index) {
-      case kAnimePageNone:
-        image_label_.Hide();
-        page_my_info.Hide();
-        page_series_info.Hide();
-        sys_link_.Show();
-        break;
-      case kAnimePageSeriesInfo:
-        image_label_.Show();
-        page_my_info.Hide();
-        page_series_info.Show();
-        sys_link_.Show(mode_ == kDialogModeNowPlaying || !anime_in_list);
-        break;
-      case kAnimePageMyInfo:
-        image_label_.Show();
-        page_series_info.Hide();
-        page_my_info.Show();
-        sys_link_.Hide();
-        break;
-      case kAnimePageNotRecognized:
-        image_label_.Show();
-        page_my_info.Hide();
-        page_series_info.Hide();
-        sys_link_.Show();
-        break;
-    }
-
-    tab_.SetCurrentlySelected(index - 1);
-
-    int show = SW_SHOW;
-    if (mode_ == kDialogModeNowPlaying || !anime_in_list) {
-      show = SW_HIDE;
-    }
-    ShowDlgItem(IDOK, show);
-    ShowDlgItem(IDCANCEL, show);
+  switch (index) {
+    case kAnimePageNone:
+      image_label_.Hide();
+      page_my_info.Hide();
+      page_series_info.Hide();
+      sys_link_.Show();
+      break;
+    case kAnimePageSeriesInfo:
+      image_label_.Show();
+      page_my_info.Hide();
+      page_series_info.Show();
+      sys_link_.Show(mode_ == kDialogModeNowPlaying || !anime_in_list);
+      break;
+    case kAnimePageMyInfo:
+      image_label_.Show();
+      page_series_info.Hide();
+      page_my_info.Show();
+      sys_link_.Hide();
+      break;
+    case kAnimePageNotRecognized:
+      image_label_.Show();
+      page_my_info.Hide();
+      page_series_info.Hide();
+      sys_link_.Show();
+      break;
   }
+
+  if (previous_page != current_page_) {
+    const HWND hwnd = GetFocus();
+    if (::IsWindow(hwnd) && !::IsWindowVisible(hwnd)) {
+      switch (current_page_) {
+        case kAnimePageNone:
+          sys_link_.SetFocus();
+          break;
+        case kAnimePageSeriesInfo:
+          page_series_info.SetFocus();
+          break;
+        case kAnimePageMyInfo:
+          page_my_info.SetFocus();
+          break;
+        case kAnimePageNotRecognized:
+          sys_link_.SetFocus();
+          break;
+      }
+    }
+  }
+
+  tab_.SetCurrentlySelected(index - 1);
+
+  int show = SW_SHOW;
+  if (mode_ == kDialogModeNowPlaying || !anime_in_list) {
+    show = SW_HIDE;
+  }
+  ShowDlgItem(IDOK, show);
+  ShowDlgItem(IDCANCEL, show);
+}
+
+void AnimeDialog::SetScores(const sorted_scores_t& scores) {
+  scores_ = scores;
 }
 
 void AnimeDialog::Refresh(bool image, bool series_info, bool my_info, bool connect) {
@@ -505,26 +548,28 @@ void AnimeDialog::Refresh(bool image, bool series_info, bool my_info, bool conne
   // Set title
   if (anime_item) {
     if (Settings.GetBool(taiga::kApp_List_DisplayEnglishTitles)) {
-      SetDlgItemText(IDC_EDIT_ANIME_TITLE, anime_item->GetEnglishTitle(true).c_str());
+      edit_title_.SetText(anime_item->GetEnglishTitle(true));
     } else {
-      SetDlgItemText(IDC_EDIT_ANIME_TITLE, anime_item->GetTitle().c_str());
+      edit_title_.SetText(anime_item->GetTitle());
     }
   } else if (anime_id_ == anime::ID_NOTINLIST) {
-    SetDlgItemText(IDC_EDIT_ANIME_TITLE, CurrentEpisode.anime_title().c_str());
+    edit_title_.SetText(CurrentEpisode.anime_title());
   } else {
-    SetDlgItemText(IDC_EDIT_ANIME_TITLE, L"Now Playing");
+    edit_title_.SetText(L"Now Playing");
   }
 
   // Set content
   if (anime_id_ == anime::ID_NOTINLIST) {
+    std::vector<int> passive_links;
     std::wstring content = L"Taiga was unable to identify this title, and it needs your help.\n\n";
-    auto scores = Meow.GetScores();
-    if (!scores.empty()) {
+    if (!scores_.empty()) {
       int count = 0;
       content += L"Please choose the correct one from the list below:\n\n";
-      foreach_c_(it, scores) {
+      foreach_c_(it, scores_) {
+        passive_links.push_back(passive_links.empty() ? 1 : passive_links.back() + 2);
         content += L"  \u2022 <a href=\"score\" id=\"" + ToWstr(it->first) + L"\">" +
-                   AnimeDatabase.items[it->first].GetTitle() + L"</a>";
+                   AnimeDatabase.items[it->first].GetTitle() + L"</a>" +
+                   L" <a href=\"Info(" + ToWstr(it->first) + L")\">[?]</a>";
         if (Taiga.debug_mode)
           content += L" [Score: " + ToWstr(it->second) + L"]";
         content += L"\n";
@@ -536,13 +581,15 @@ void AnimeDialog::Refresh(bool image, bool series_info, bool my_info, bool conne
       content += L"<a id=\"search\">Search</a> for this title.";
     }
     sys_link_.SetText(content);
+    for (const auto i : passive_links) {
+      sys_link_.SetItemState(i, LIS_ENABLED | LIS_DEFAULTCOLORS);
+    }
 
   } else if (anime_id_ == anime::ID_UNKNOWN) {
     std::wstring content;
     Date date_now = GetDate();
     int date_diff = 0;
     const int day_limit = 7;
-    int link_count = 0;
 
     // Recently watched
     std::vector<int> anime_ids;
@@ -552,8 +599,9 @@ void AnimeDialog::Refresh(bool image, bool series_info, bool my_info, bool conne
           if (std::find(anime_ids.begin(), anime_ids.end(),
                         it->anime_id) == anime_ids.end()) {
             auto anime_item = AnimeDatabase.FindItem(it->anime_id);
-            if (anime_item && anime_item->GetMyStatus() == anime::kWatching)
-              anime_ids.push_back(it->anime_id);
+            if (anime_item)
+              if (anime_item->GetMyStatus() == anime::kWatching || anime_item->GetMyRewatching())
+                anime_ids.push_back(it->anime_id);
           }
         }
       }
@@ -567,7 +615,6 @@ void AnimeDialog::Refresh(bool image, bool series_info, bool my_info, bool conne
         continue;
       std::wstring title = anime_item->GetTitle() + L" #" + ToWstr(anime_item->GetMyLastWatchedEpisode() + 1);
       content += L"\u2022 <a href=\"PlayNext(" + ToWstr(*it) + L")\">" + title + L"</a>\n";
-      link_count++;
       recently_watched++;
       if (recently_watched >= 20)
         break;
@@ -576,29 +623,28 @@ void AnimeDialog::Refresh(bool image, bool series_info, bool my_info, bool conne
       content = L"Continue Watching:\n"
                 L"<a href=\"ScanEpisodesAll()\">Scan available episodes</a> to see recently watched anime. "
                 L"Or how about you <a href=\"PlayRandomAnime()\">try a random one</a>?\n\n";
-      link_count += 2;
     } else {
-      content = L"Continue watching:\n" + content + L"\n";
-      int watched_last_week = 0;
-      foreach_c_(it, History.queue.items) {
-        if (!it->episode || *it->episode == 0)
-          continue;
-        date_diff = date_now - (Date)(it->time.substr(0, 10));
-        if (date_diff <= day_limit)
-          watched_last_week++;
-      }
-      foreach_c_(it, History.items) {
-        if (!it->episode || *it->episode == 0)
-          continue;
-        date_diff = date_now - (Date)(it->time.substr(0, 10));
-        if (date_diff <= day_limit)
-          watched_last_week++;
-      }
-      if (watched_last_week > 0) {
-        content += L"You've watched " + ToWstr(watched_last_week) + L" ";
-        content += watched_last_week == 1 ? L"episode" : L"episodes";
-        content += L" in the last week.\n\n";
-      }
+      content = L"Continue Watching:\n" + content + L"\n";
+    }
+    int watched_last_week = 0;
+    foreach_c_(it, History.queue.items) {
+      if (!it->episode || *it->episode == 0)
+        continue;
+      date_diff = date_now - (Date)(it->time.substr(0, 10));
+      if (date_diff <= day_limit)
+        watched_last_week++;
+    }
+    foreach_c_(it, History.items) {
+      if (!it->episode || *it->episode == 0)
+        continue;
+      date_diff = date_now - (Date)(it->time.substr(0, 10));
+      if (date_diff <= day_limit)
+        watched_last_week++;
+    }
+    if (watched_last_week > 0) {
+      content += L"You've watched " + ToWstr(watched_last_week) + L" ";
+      content += watched_last_week == 1 ? L"episode" : L"episodes";
+      content += L" in the last week.\n\n";
     }
 
     // Available episodes
@@ -646,7 +692,6 @@ void AnimeDialog::Refresh(bool image, bool series_info, bool my_info, bool conne
       for (const auto& id : ids) {
         auto title = AnimeDatabase.FindItem(id)->GetTitle();
         AppendString(text, L"<a href=\"Info(" + ToWstr(id) + L")\">" + title + L"</a>", L"  \u2022  ");
-        link_count++;
       }
       content += text;
     };
@@ -666,15 +711,9 @@ void AnimeDialog::Refresh(bool image, bool series_info, bool my_info, bool conne
       content += L"\n\n";
     } else {
       content += L"<a href=\"ViewUpcomingAnime()\">View upcoming anime</a>";
-      link_count++;
     }
 
     sys_link_.SetText(content);
-
-    /*
-    for (int i = 0; i < link_count; i++)
-      sys_link_.SetItemState(i, LIS_ENABLED | LIS_HOTTRACK | LIS_DEFAULTCOLORS);
-    */
 
   } else {
     std::wstring content;
@@ -687,7 +726,10 @@ void AnimeDialog::Refresh(bool image, bool series_info, bool my_info, bool conne
     if (anime_item && anime_item->IsInList()) {
       content += L"<a href=\"EditAll(" + ToWstr(anime_id_) + L")\">Edit</a>";
     } else {
-      content += L"<a href=\"AddToList()\">Add to list</a>";
+      int status = anime::kPlanToWatch;
+      if (mode_ == kDialogModeNowPlaying || CurrentEpisode.anime_id == anime_id_)
+        status = anime::kWatching;
+      content += L"<a href=\"AddToList(" + ToWstr(status) + L")\">Add to list</a>";
     }
     if (anime_item && mode_ == kDialogModeNowPlaying) {
       content += L" \u2022 <a id=\"menu\" href=\"Announce\">Share</a>";
@@ -742,7 +784,7 @@ void AnimeDialog::UpdateControlPositions(const SIZE* size) {
                               image->rect.Width(), image->rect.Height(),
                               true, true, false);
     } else {
-      rect_image.bottom = rect_image.top + ScaleY(230);
+      rect_image.bottom = rect_image.top + static_cast<int>(rect_image.Width() * 1.4);
     }
     image_label_.SetPosition(nullptr, rect_image);
     rect.left = rect_image.right + ScaleX(win::kControlMargin) * 2;
@@ -771,7 +813,10 @@ void AnimeDialog::UpdateControlPositions(const SIZE* size) {
     sys_link_.SetPosition(nullptr, rect);
   } else if (mode_ == kDialogModeNowPlaying || !anime_in_list) {
     win::Dc dc = sys_link_.GetDC();
-    int text_height = GetTextHeight(dc.Get());
+    dc.AttachFont(sys_link_.GetFont());
+    const int text_height = GetTextHeight(dc.Get());
+    dc.DetachFont();
+    dc.DetachDc();
     int line_count = mode_ == kDialogModeNowPlaying ? 2 : 1;
     win::Rect rect_content = rect;
     rect_content.Inflate(-ScaleX(win::kControlMargin * 2), 0);

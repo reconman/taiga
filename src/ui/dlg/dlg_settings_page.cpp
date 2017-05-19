@@ -156,12 +156,14 @@ BOOL SettingsPage::OnInitDialog() {
       AddComboString(IDC_COMBO_DBLCLICK, L"Open folder");
       AddComboString(IDC_COMBO_DBLCLICK, L"Play next episode");
       AddComboString(IDC_COMBO_DBLCLICK, L"View anime info");
+      AddComboString(IDC_COMBO_DBLCLICK, L"View anime page");
       SetComboSelection(IDC_COMBO_DBLCLICK, Settings.GetInt(taiga::kApp_List_DoubleClickAction));
       AddComboString(IDC_COMBO_MDLCLICK, L"Do nothing");
       AddComboString(IDC_COMBO_MDLCLICK, L"Edit details");
       AddComboString(IDC_COMBO_MDLCLICK, L"Open folder");
       AddComboString(IDC_COMBO_MDLCLICK, L"Play next episode");
       AddComboString(IDC_COMBO_MDLCLICK, L"View anime info");
+      AddComboString(IDC_COMBO_MDLCLICK, L"View anime page");
       SetComboSelection(IDC_COMBO_MDLCLICK, Settings.GetInt(taiga::kApp_List_MiddleClickAction));
       CheckDlgButton(IDC_CHECK_LIST_ENGLISH, Settings.GetBool(taiga::kApp_List_DisplayEnglishTitles));
       bool enabled = Settings.GetBool(taiga::kApp_List_HighlightNewEpisodes);
@@ -179,7 +181,6 @@ BOOL SettingsPage::OnInitDialog() {
     case kSettingsPageRecognitionGeneral: {
       CheckDlgButton(IDC_CHECK_UPDATE_CONFIRM, Settings.GetBool(taiga::kSync_Update_AskToConfirm));
       CheckDlgButton(IDC_CHECK_UPDATE_CHECKMP, Settings.GetBool(taiga::kSync_Update_CheckPlayer));
-      CheckDlgButton(IDC_CHECK_UPDATE_GOTO, Settings.GetBool(taiga::kSync_Update_GoToNowPlaying));
       CheckDlgButton(IDC_CHECK_UPDATE_RANGE, Settings.GetBool(taiga::kSync_Update_OutOfRange));
       CheckDlgButton(IDC_CHECK_UPDATE_ROOT, Settings.GetBool(taiga::kSync_Update_OutOfRoot));
       CheckDlgButton(IDC_CHECK_UPDATE_WAITMP, Settings.GetBool(taiga::kSync_Update_WaitPlayer));
@@ -187,6 +188,8 @@ BOOL SettingsPage::OnInitDialog() {
       SendDlgItemMessage(IDC_SPIN_DELAY, UDM_SETPOS32, 0, Settings.GetInt(taiga::kSync_Update_Delay));
       CheckDlgButton(IDC_CHECK_NOTIFY_RECOGNIZED, Settings.GetBool(taiga::kSync_Notify_Recognized));
       CheckDlgButton(IDC_CHECK_NOTIFY_NOTRECOGNIZED, Settings.GetBool(taiga::kSync_Notify_NotRecognized));
+      CheckDlgButton(IDC_CHECK_GOTO_RECOGNIZED, Settings.GetBool(taiga::kSync_GoToNowPlaying_Recognized));
+      CheckDlgButton(IDC_CHECK_GOTO_NOTRECOGNIZED, Settings.GetBool(taiga::kSync_GoToNowPlaying_NotRecognized));
       break;
     }
     // Recognition > Media players
@@ -249,13 +252,12 @@ BOOL SettingsPage::OnInitDialog() {
       }
       int i = 0;
       list.InsertItem(i++, 0, ui::kIcon16_AppBlue, 0, nullptr, L"AnimeLab", taiga::kStream_Animelab);
-      list.InsertItem(i++, 0, ui::kIcon16_AppBlue, 0, nullptr, L"Anime Sols", taiga::kStream_Animesols);
       list.InsertItem(i++, 0, ui::kIcon16_AppBlue, 0, nullptr, L"Anime News Network", taiga::kStream_Ann);
       list.InsertItem(i++, 0, ui::kIcon16_AppBlue, 0, nullptr, L"Crunchyroll", taiga::kStream_Crunchyroll);
       list.InsertItem(i++, 0, ui::kIcon16_AppBlue, 0, nullptr, L"DAISUKI", taiga::kStream_Daisuki);
       list.InsertItem(i++, 0, ui::kIcon16_AppBlue, 0, nullptr, L"Plex Web App", taiga::kStream_Plex);
       list.InsertItem(i++, 0, ui::kIcon16_AppBlue, 0, nullptr, L"Veoh", taiga::kStream_Veoh);
-      list.InsertItem(i++, 0, ui::kIcon16_AppBlue, 0, nullptr, L"Viz Anime", taiga::kStream_Viz);
+      list.InsertItem(i++, 0, ui::kIcon16_AppBlue, 0, nullptr, L"VIZ", taiga::kStream_Viz);
       list.InsertItem(i++, 0, ui::kIcon16_AppBlue, 0, nullptr, L"Wakanim", taiga::kStream_Wakanim);
       list.InsertItem(i++, 0, ui::kIcon16_AppBlue, 0, nullptr, L"YouTube", taiga::kStream_Youtube);
       for (int i = 0; i < list.GetItemCount(); ++i) {
@@ -303,13 +305,14 @@ BOOL SettingsPage::OnInitDialog() {
 
     // Torrents > Discovery
     case kSettingsPageTorrentsDiscovery: {
+      AddComboString(IDC_COMBO_TORRENT_SOURCE, L"https://feeds.feedburner.com/anime-rss-atom-feeds?format=xml");
       AddComboString(IDC_COMBO_TORRENT_SOURCE, L"http://haruhichan.com/feed/feed.php?mode=rss");
-      AddComboString(IDC_COMBO_TORRENT_SOURCE, L"http://tokyotosho.info/rss.php?filter=1,11&zwnj=0");
-      AddComboString(IDC_COMBO_TORRENT_SOURCE, L"http://www.baka-updates.com/rss.php");
-      AddComboString(IDC_COMBO_TORRENT_SOURCE, L"http://www.nyaa.se/?page=rss&cats=1_37&filter=2");
+      AddComboString(IDC_COMBO_TORRENT_SOURCE, L"https://tokyotosho.info/rss.php?filter=1,11&zwnj=0");
+      AddComboString(IDC_COMBO_TORRENT_SOURCE, L"https://www.nyaa.se/?page=rss&cats=1_37&filter=0");
+      AddComboString(IDC_COMBO_TORRENT_SOURCE, L"https://www.nyaa.se/?page=rss&cats=1_37&filter=2");
       SetDlgItemText(IDC_COMBO_TORRENT_SOURCE, Settings[taiga::kTorrent_Discovery_Source].c_str());
-      AddComboString(IDC_COMBO_TORRENT_SEARCH, L"http://www.nyaa.se/?page=rss&cats=1_37&filter=2&term=%title%");
-      AddComboString(IDC_COMBO_TORRENT_SEARCH, L"http://pipes.yahoo.com/pipes/pipe.run?SearchQuery=%title%&_id=7b99f981c5b1f02354642f4e271cca43&_render=rss");
+      AddComboString(IDC_COMBO_TORRENT_SEARCH, L"https://www.nyaa.se/?page=rss&cats=1_37&filter=0&term=%title%");
+      AddComboString(IDC_COMBO_TORRENT_SEARCH, L"https://www.nyaa.se/?page=rss&cats=1_37&filter=2&term=%title%");
       SetDlgItemText(IDC_COMBO_TORRENT_SEARCH, Settings[taiga::kTorrent_Discovery_SearchUrl].c_str());
       CheckDlgButton(IDC_CHECK_TORRENT_AUTOCHECK, Settings.GetBool(taiga::kTorrent_Discovery_AutoCheckEnabled));
       SendDlgItemMessage(IDC_SPIN_TORRENT_INTERVAL, UDM_SETRANGE32, 10, 3600);
@@ -383,7 +386,7 @@ BOOL SettingsPage::OnInitDialog() {
       list.SetWindowHandle(nullptr);
       // Initialize toolbar
       win::Toolbar toolbar = GetDlgItem(IDC_TOOLBAR_FEED_FILTER);
-      toolbar.SetImageList(ui::Theme.GetImageList16().GetHandle(), 16, 16);
+      toolbar.SetImageList(ui::Theme.GetImageList16().GetHandle(), ScaleX(16), ScaleY(16));
       toolbar.SendMessage(TB_SETEXTENDEDSTYLE, 0, TBSTYLE_EX_MIXEDBUTTONS);
       // Add toolbar items
       BYTE fsState1 = TBSTATE_ENABLED;
@@ -406,11 +409,13 @@ BOOL SettingsPage::OnInitDialog() {
     case kSettingsPageAdvanced: {
       parent->advanced_settings_.clear();
       parent->advanced_settings_.insert({
+        {taiga::kApp_Connection_NoRevoke, {L"", L"Application / Disable certificate revocation checks"}},
         {taiga::kSync_Notify_Format, {L"", L"Application / Episode notification format"}},
         {taiga::kApp_Connection_ProxyHost, {L"", L"Application / Proxy host"}},
         {taiga::kApp_Connection_ProxyPassword, {L"", L"Application / Proxy password"}},
         {taiga::kApp_Connection_ProxyUsername, {L"", L"Application / Proxy username"}},
         {taiga::kApp_Position_Remember, {L"", L"Application / Remember main window position and size"}},
+        {taiga::kApp_Connection_ReuseActive, {L"", L"Application / Reuse active connections"}},
         {taiga::kApp_Interface_Theme, {L"", L"Application / UI theme"}},
         {taiga::kLibrary_FileSizeThreshold, {L"", L"Library / File size threshold"}},
         {taiga::kRecognition_IgnoredStrings, {L"", L"Recognition / Ignored strings"}},
@@ -418,13 +423,14 @@ BOOL SettingsPage::OnInitDialog() {
         {taiga::kRecognition_MediaPlayerDetectionMethod, {L"", L"Recognition / Media player detection method"}},
         {taiga::kRecognition_BrowserDetectionMethod, {L"", L"Recognition / Web browser detection method"}},
         {taiga::kSync_Service_Hummingbird_UseHttps, {L"", L"Services / Use HTTPS connections for Hummingbird"}},
+        {taiga::kSync_Service_Mal_UseHttps, {L"", L"Services / Use HTTPS connections for MyAnimeList"}},
         {taiga::kTorrent_Filter_ArchiveMaxCount, {L"", L"Torrents / Archive limit"}},
       });
       win::ListView list = GetDlgItem(IDC_LIST_ADVANCED_SETTINGS);
       list.SetExtendedStyle(LVS_EX_DOUBLEBUFFER | LVS_EX_FULLROWSELECT | LVS_EX_INFOTIP | LVS_EX_LABELTIP);
       list.SetTheme();
-      list.InsertColumn(0, 350, 0, LVS_ALIGNLEFT, L"Name");
-      list.InsertColumn(1, 100, 0, LVS_ALIGNLEFT, L"Value");
+      list.InsertColumn(0, ScaleX(350), 0, LVS_ALIGNLEFT, L"Name");
+      list.InsertColumn(1, ScaleX(100), 0, LVS_ALIGNLEFT, L"Value");
       int list_index = 0;
       for (auto& it : parent->advanced_settings_) {
         list.InsertItem(list_index, -1, -1, 0, nullptr, it.second.second.c_str(), it.first);
@@ -706,12 +712,12 @@ BOOL SettingsPage::OnCommand(WPARAM wParam, LPARAM lParam) {
         case 106: {
           InputDialog dlg;
           dlg.title = L"Import Filters";
-          dlg.info = L"Please enter encoded text below:";
+          dlg.info = L"Enter encoded text below:";
           dlg.Show(parent->GetWindowHandle());
           if (dlg.result == IDOK) {
             std::wstring data, metadata;
             StringCoder coder;
-            bool parsed = coder.Decode(dlg.text, data, metadata);
+            bool parsed = coder.Decode(dlg.text, metadata, data);
             if (parsed) {
               parsed = Aggregator.filter_manager.Import(data, parent->feed_filters_);
               if (parsed) {
@@ -721,7 +727,10 @@ BOOL SettingsPage::OnCommand(WPARAM wParam, LPARAM lParam) {
             if (!parsed) {
               LOG(LevelError, metadata);
               LOG(LevelError, data);
-              ui::DisplayErrorMessage(L"Could not parse filter string.", L"Import Filters");
+              ui::DisplayErrorMessage(
+                  L"Could not parse the filter string. It may be missing characters, "
+                  L"or encoded with an incompatible version of the application.",
+                  L"Import Filters");
             }
           }
           return TRUE;
@@ -733,9 +742,9 @@ BOOL SettingsPage::OnCommand(WPARAM wParam, LPARAM lParam) {
           std::wstring metadata = Taiga.version;
           InputDialog dlg;
           StringCoder coder;
-          if (coder.Encode(data, dlg.text, metadata)) {
+          if (coder.Encode(metadata, data, dlg.text)) {
             dlg.title = L"Export Filters";
-            dlg.info = L"Please copy the text below to share it with other people:";
+            dlg.info = L"Copy the text below and share it with other people:";
             dlg.Show(parent->GetWindowHandle());
           }
           return TRUE;
@@ -883,38 +892,19 @@ LRESULT SettingsPage::OnNotify(int idCtrl, LPNMHDR pnmh) {
         Execute(MediaPlayers.items[lpnmitem->iItem].GetPath());
       // Streaming media providers
       } else if (lpnmitem->hdr.hwndFrom == GetDlgItem(IDC_LIST_STREAM_PROVIDER)) {
-        switch (lpnmitem->iItem) {
-          case 0:
-            ExecuteLink(L"http://www.animelab.com");
-            break;
-          case 1:
-            ExecuteLink(L"http://www.animesols.com");
-            break;
-          case 2:
-            ExecuteLink(L"http://www.animenewsnetwork.com/video/");
-            break;
-          case 3:
-            ExecuteLink(L"http://www.crunchyroll.com");
-            break;
-          case 4:
-            ExecuteLink(L"http://www.daisuki.net");
-            break;
-          case 5:
-            ExecuteLink(L"http://www.daisuki.net");
-            break;
-          case 6:
-            ExecuteLink(L"http://plex.tv");
-            break;
-          case 7:
-            ExecuteLink(L"http://www.viz.com/anime/streaming");
-            break;
-          case 8:
-            ExecuteLink(L"http://www.wakanim.tv");
-            break;
-          case 9:
-            ExecuteLink(L"http://www.youtube.com");
-            break;
-        }
+        const std::vector<std::wstring> links = {
+          L"https://www.animelab.com",
+          L"https://www.animenewsnetwork.com/video/",
+          L"http://www.crunchyroll.com",
+          L"http://www.daisuki.net",
+          L"https://www.plex.tv",
+          L"http://www.veoh.com",
+          L"https://www.viz.com/watch",
+          L"http://www.wakanim.tv",
+          L"https://www.youtube.com",
+        };
+        if (lpnmitem->iItem > -1 && lpnmitem->iItem < static_cast<int>(links.size()))
+          ExecuteLink(links.at(lpnmitem->iItem));
       // Torrent filters
       } else if (lpnmitem->hdr.hwndFrom == GetDlgItem(IDC_LIST_TORRENT_FILTER)) {
         win::ListView list = lpnmitem->hdr.hwndFrom;

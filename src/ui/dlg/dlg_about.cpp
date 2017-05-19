@@ -33,7 +33,7 @@
 
 namespace ui {
 
-static enum ThirdPartyLibrary {
+enum ThirdPartyLibrary {
   kJsoncpp,
   kLibcurl,
   kPugixml,
@@ -91,9 +91,10 @@ BOOL AboutDialog::OnInitDialog() {
       L"}"
       L"\\fs24\\b " TAIGA_APP_NAME L"\\b0  " + std::wstring(Taiga.version) + L"\\line\\fs18\\par "
       L"\\b Author:\\b0\\line "
-      L"Eren 'erengy' Okka\\line\\par "
+      L"erengy (Eren Okka)\\line\\par "
       L"\\b Contributors:\\b0\\line "
-      L"saka, Diablofan, slevir, LordGravewish, cassist, rr-, sunjayc, LordHaruto, Keelhauled\\line\\par "
+      L"saka, Diablofan, slevir, LordGravewish, rr-, sunjayc, ConnorKrammer, Soinou, Jiyuu,\\line "
+      L"ryban\\line\\par "
       L"\\b Third-party components:\\b0\\line "
       L"{\\field{\\*\\fldinst{HYPERLINK \"https://github.com/yusukekamiyamane/fugue-icons\"}}{\\fldrslt{Fugue Icons 3.4.5}}}, "
       L"{\\field{\\*\\fldinst{HYPERLINK \"https://github.com/open-source-parsers/jsoncpp\"}}{\\fldrslt{JsonCpp " + GetLibraryVersion(kJsoncpp) + L"}}}, "
@@ -102,10 +103,10 @@ BOOL AboutDialog::OnInitDialog() {
       L"{\\field{\\*\\fldinst{HYPERLINK \"https://github.com/JuliaLang/utf8proc\"}}{\\fldrslt{utf8proc " + GetLibraryVersion(kUtf8proc) + L"}}}, "
       L"{\\field{\\*\\fldinst{HYPERLINK \"https://github.com/madler/zlib\"}}{\\fldrslt{zlib " + GetLibraryVersion(kZlib) + L"}}}\\line\\par "
       L"\\b Links:\\b0\\line "
-      L"\u2022 {\\field{\\*\\fldinst{HYPERLINK \"http://taiga.erengy.com\"}}{\\fldrslt{Home page}}}\\line "
+      L"\u2022 {\\field{\\*\\fldinst{HYPERLINK \"http://taiga.moe\"}}{\\fldrslt{Home page}}}\\line "
       L"\u2022 {\\field{\\*\\fldinst{HYPERLINK \"https://github.com/erengy/taiga\"}}{\\fldrslt{GitHub repository}}}\\line "
       L"\u2022 {\\field{\\*\\fldinst{HYPERLINK \"https://hummingbird.me/groups/taiga\"}}{\\fldrslt{Hummingbird group}}}\\line "
-      L"\u2022 {\\field{\\*\\fldinst{HYPERLINK \"http://myanimelist.net/clubs.php?cid=21400\"}}{\\fldrslt{MyAnimeList club}}}\\line "
+      L"\u2022 {\\field{\\*\\fldinst{HYPERLINK \"https://myanimelist.net/clubs.php?cid=21400\"}}{\\fldrslt{MyAnimeList club}}}\\line "
       L"\u2022 {\\field{\\*\\fldinst{HYPERLINK \"https://twitter.com/taigaapp\"}}{\\fldrslt{Twitter account}}}\\line "
       L"\u2022 {\\field{\\*\\fldinst{HYPERLINK \"irc://irc.rizon.net/taiga\"}}{\\fldrslt{IRC channel}}}"
       L"}";
@@ -150,10 +151,24 @@ void AboutDialog::OnPaint(HDC hdc, LPPAINTSTRUCT lpps) {
   win::Dc dc = hdc;
   win::Rect rect;
 
+  win::Rect rect_edit;
+  rich_edit_.GetWindowRect(GetWindowHandle(), &rect_edit);
+
+  const int margin = rect_edit.top;
+  const int sidebar_width = rect_edit.left - margin;
+
   // Paint background
   GetClientRect(&rect);
-  rect.left = ScaleX(static_cast<int>(48 * 1.5f));
+  rect.left = sidebar_width;
   dc.FillRect(rect, ::GetSysColor(COLOR_WINDOW));
+
+  // Paint application icon
+  rect.Set(margin / 2, margin, sidebar_width - (margin / 2), rect.bottom);
+  DrawIconResource(IDI_MAIN, dc.Get(), rect, true, false);
+  win::Window label = GetDlgItem(IDC_STATIC_APP_ICON);
+  label.SetPosition(nullptr, rect,
+      SWP_NOACTIVATE | SWP_NOREDRAW | SWP_NOOWNERZORDER | SWP_NOZORDER);
+  label.SetWindowHandle(nullptr);
 }
 
 }  // namespace ui

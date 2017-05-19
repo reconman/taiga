@@ -89,7 +89,7 @@ void Aggregator::ExamineData(Feed& feed) {
     static track::recognition::ParseOptions parse_options;
     parse_options.parse_path = false;
     parse_options.streaming_media = false;
-    Meow.Parse(feed_item.title, episode_data, parse_options);
+    Meow.Parse(feed_item.title, parse_options, episode_data);
     static track::recognition::MatchOptions match_options;
     match_options.allow_sequels = true;
     match_options.check_airing_date = true;
@@ -172,14 +172,16 @@ bool Aggregator::Download(FeedCategory category, const FeedItem* feed_item) {
     return false;
 
   if (StartsWith(feed_item->link, L"magnet")) {
-    ui::OnFeedDownload(false, L"Magnet links are currently not supported");
-    return false;
+    ui::ChangeStatusText(L"Opening magnet link for \"" + feed_item->title + L"\"...");
+    const std::string empty_data;
+    HandleFeedDownload(feed, empty_data);
 
   } else {
     ui::ChangeStatusText(L"Downloading \"" + feed_item->title + L"\"...");
     ui::EnableDialogInput(ui::kDialogTorrents, false);
 
     HttpRequest http_request;
+    http_request.header[L"Accept"] = L"application/x-bittorrent, */*";
     http_request.url = feed_item->link;
     http_request.parameter = reinterpret_cast<LPARAM>(&feed);
 
@@ -205,7 +207,7 @@ void Aggregator::HandleFeedCheck(Feed& feed, const std::string& data,
   std::wstring file = feed.GetDataPath() + L"feed.xml";
   SaveToFile(data, file);
 
-  feed.Load();
+  feed.Load(StrToWstr(data));
   ExamineData(feed);
   download_queue_.clear();
 
@@ -242,22 +244,30 @@ void Aggregator::HandleFeedDownload(Feed& feed, const std::string& data) {
   if (!feed_item)
     return;
 
-  feed_item->state = kFeedItemDiscardedNormal;
+  std::wstring file;
 
-  std::wstring file = feed_item->title;
-  ValidateFileName(file);
-  file = feed.GetDataPath() + file + L".torrent";
-  SaveToFile(data, file);
+  if (!data.empty()) {
+    file = feed_item->title;
+    ValidateFileName(file);
+    file = feed.GetDataPath() + file + L".torrent";
 
-  if (!FileExists(file)) {
-    ui::OnFeedDownload(false, L"Torrent file doesn't exist");
-    return;
-  } else {
-    AddToArchive(feed_item->title);
-    ui::OnFeedDownload(true, L"");
+    SaveToFile(data, file);
+
+    if (!FileExists(file)) {
+      ui::OnFeedDownload(false, L"Torrent file doesn't exist");
+      return;
+    }
   }
 
-  HandleFeedDownloadOpen(*feed_item, file);
+  feed_item->state = kFeedItemDiscardedNormal;
+  AddToArchive(feed_item->title);
+  ui::OnFeedDownload(true, L"");
+
+  if (!file.empty()) {
+    HandleFeedDownloadOpen(*feed_item, file);
+  } else {
+    ExecuteLink(feed_item->link);  // magnet link
+  }
 
   if (!download_queue_.empty())
     Download(feed.category, nullptr);
@@ -269,8 +279,6 @@ void Aggregator::HandleFeedDownloadOpen(FeedItem& feed_item,
     return;
 
   std::wstring app_path;
-  std::wstring parameters;
-
   switch (Settings.GetInt(taiga::kTorrent_Download_AppMode)) {
     case 1:  // Default application
       app_path = GetDefaultAppPath(L".torrent", L"");
@@ -280,9 +288,8 @@ void Aggregator::HandleFeedDownloadOpen(FeedItem& feed_item,
       break;
   }
 
-  if (Settings.GetBool(taiga::kTorrent_Download_UseAnimeFolder) &&
-      InStr(app_path, L"utorrent", 0, true) > -1) {
-    std::wstring download_path;
+  std::wstring download_path;
+  if (Settings.GetBool(taiga::kTorrent_Download_UseAnimeFolder)) {
     // Use anime folder as the download folder
     auto anime_id = feed_item.episode_data.anime_id;
     auto anime_item = AnimeDatabase.FindItem(anime_id);
@@ -297,9 +304,9 @@ void Aggregator::HandleFeedDownloadOpen(FeedItem& feed_item,
           !Settings[taiga::kTorrent_Download_Location].empty()) {
         download_path = Settings[taiga::kTorrent_Download_Location];
       }
-      if (!FolderExists(download_path)) {
+      if (!download_path.empty() && !FolderExists(download_path)) {
         LOG(LevelWarning, L"Folder doesn't exist.\n"
-            L"Path: " + download_path);
+                          L"Path: " + download_path);
         download_path.clear();
       }
       // Create a subfolder using the anime title as its name
@@ -317,7 +324,7 @@ void Aggregator::HandleFeedDownloadOpen(FeedItem& feed_item,
         download_path += anime_title;
         if (!CreateFolder(download_path)) {
           LOG(LevelError, L"Subfolder could not be created.\n"
-              L"Path: " + download_path);
+                          L"Path: " + download_path);
           download_path.clear();
         } else {
           if (anime_item) {
@@ -327,14 +334,28 @@ void Aggregator::HandleFeedDownloadOpen(FeedItem& feed_item,
         }
       }
     }
-
-    // Set the command line parameter
-    if (!download_path.empty())
-      parameters = L"/directory \"" + download_path + L"\" ";
   }
 
-  parameters += L"\"" + file + L"\"";
-  Execute(app_path, parameters);
+  TrimRight(download_path, L"\\");  // gets mixed up as an escape character
+
+  std::wstring parameters = L"\"" + file + L"\"";
+  int show_command = SW_SHOWNORMAL;
+
+  if (!download_path.empty()) {
+    // uTorrent
+    if (InStr(GetFileName(app_path), L"utorrent", 0, true) > -1) {
+      parameters = L"/directory \"" + download_path + L"\" \"" + file + L"\"";
+    // Deluge
+    } else if (InStr(GetFileName(app_path), L"deluge-console", 0, true) > -1) {
+      parameters = L"add -p \\\"" + download_path + L"\\\" \\\"" + file + L"\\\"";
+      show_command = SW_HIDE;
+    } else {
+      LOG(LevelDebug, L"Application is not a supported torrent client.\n"
+                      L"Path: " + app_path);
+    }
+  }
+
+  Execute(app_path, parameters, show_command);
 }
 
 bool Aggregator::ValidateFeedDownload(const HttpRequest& http_request,
@@ -352,9 +373,23 @@ bool Aggregator::ValidateFeedDownload(const HttpRequest& http_request,
 
   auto it = http_response.header.find(L"Content-Type");
   if (it != http_response.header.end()) {
-    if (InStr(it->second, L"application/x-bittorrent", 0, true) == -1) {
-      ui::OnFeedDownload(false, L"Invalid content type: " + it->second);
-      return false;
+    const auto& content_type = it->second;
+    static const std::vector<std::wstring> allowed_types{
+      L"application/x-bittorrent",
+      // The following MIME types are invalid for .torrent files, but we allow
+      // them to handle misconfigured servers.
+      L"application/force-download",
+      L"application/octet-stream",
+      L"application/torrent",
+      L"application/x-torrent",
+    };
+    if (std::find(allowed_types.begin(), allowed_types.end(),
+                  ToLower_Copy(content_type)) == allowed_types.end()) {
+      it = http_response.header.find(L"Content-Disposition");
+      if (it == http_response.header.end()) {
+        ui::OnFeedDownload(false, L"Invalid content type: " + content_type);
+        return false;
+      }
     }
   }
 
@@ -369,23 +404,20 @@ bool Aggregator::ValidateFeedDownload(const HttpRequest& http_request,
 
 void Aggregator::ParseDescription(FeedItem& feed_item,
                                   const std::wstring& source) {
-  // Baka-Updates
-  if (InStr(source, L"baka-updates", 0, true) > -1) {
-    int index_begin = InStr(feed_item.description, L"Released on");
-    int index_end = feed_item.description.length();
-    if (index_begin > -1)
-      index_end -= index_begin;
-    if (index_begin == -1)
-      index_begin = 0;
-    feed_item.description =
-        feed_item.description.substr(index_begin, index_end);
+  // Haruhichan
+  if (InStr(source, L"haruhichan", 0, true) > -1) {
+    feed_item.info_link = feed_item.description;
 
   // NyaaTorrents
   } else if (InStr(source, L"nyaa", 0, true) > -1) {
-    feed_item.episode_data.file_size =
-        InStr(feed_item.description, L" - ", L" - ");
-    Erase(feed_item.description, feed_item.episode_data.file_size);
-    ReplaceString(feed_item.description, L"-  -", L"-");
+    std::vector<std::wstring> description_vector;
+    Split(feed_item.description, L" - ", description_vector);
+    if (description_vector.size() > 1) {
+      feed_item.episode_data.file_size = description_vector.at(1);
+      description_vector.erase(description_vector.begin() + 1);
+      feed_item.description = Join(description_vector, L" - ");
+    }
+    feed_item.info_link = feed_item.guid;
 
   // TokyoTosho
   } else if (InStr(source, L"tokyotosho", 0, true) > -1) {
@@ -400,14 +432,12 @@ void Aggregator::ParseDescription(FeedItem& feed_item,
       } else if (StartsWith(it, comment_str)) {
         feed_item.description = it.substr(comment_str.length());
       } else if (InStr(it, L"magnet:?") > -1) {
+        // TODO: This doesn't work because we've used StripHtmlTags beforehand.
         feed_item.magnet_link = L"magnet:?" +
             InStr(it, L"<a href=\"magnet:?", L"\">Magnet Link</a>");
       }
     }
-
-  // Yahoo! Pipes
-  } else if (InStr(source, L"pipes.yahoo.com", 0, true) > -1) {
-    Erase(feed_item.title, L"<span class=\"s\"> </span>");
+    feed_item.info_link = feed_item.guid;
   }
 }
 

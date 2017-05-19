@@ -52,7 +52,8 @@ void Service::BuildRequest(Request& request, HttpRequest& http_request) {
   http_request.header[L"Accept-Encoding"] = L"gzip";
 
   // kAuthenticateUser method returns the user's authentication token, which
-  // is to be used on all methods that require authentication.
+  // is to be used on all methods that require authentication. Some methods
+  // don't require the token, but behave differently when it's provided.
   if (RequestNeedsAuthentication(request.type))
     http_request.data[L"auth_token"] = auth_token_;
 
@@ -68,9 +69,8 @@ void Service::BuildRequest(Request& request, HttpRequest& http_request) {
 
   // APIv1 provides different title and alternate_title values depending on the
   // title_language_preference parameter.
-  if (Settings.GetBool(taiga::kApp_List_DisplayEnglishTitles))
-    if (RequestSupportsTitleLanguagePreference(request.type))
-      AppendTitleLanguagePreference(http_request);
+  if (RequestSupportsTitleLanguagePreference(request.type))
+    AppendTitleLanguagePreference(http_request);
 }
 
 void Service::HandleResponse(Response& response, HttpResponse& http_response) {
@@ -113,7 +113,7 @@ void Service::GetMetadataById(Request& request, HttpRequest& http_request) {
 }
 
 void Service::SearchTitle(Request& request, HttpRequest& http_request) {
-  // Note that this method will return only 5 results at a time.
+  // Note that this method will return only 7 results at a time.
   http_request.url.path = L"/search/anime";
   http_request.url.query[L"query"] = request.data[L"title"];
 }
@@ -133,11 +133,6 @@ void Service::UpdateLibraryEntry(Request& request, HttpRequest& http_request) {
   http_request.header[L"Content-Type"] = L"application/x-www-form-urlencoded";
   http_request.url.path =
       L"/libraries/" + request.data[canonical_name_ + L"-id"];
-
-  // When this undocumented parameter is included, Hummingbird will return a
-  // "mal_id" value that identifies the corresponding entry in MyAnimeList, if
-  // available.
-  http_request.data[L"include_mal_id"] = L"true";
 
   if (request.data.count(L"status"))
     http_request.data[L"status"] =
@@ -231,10 +226,16 @@ void Service::UpdateLibraryEntry(Response& response, HttpResponse& http_response
 ////////////////////////////////////////////////////////////////////////////////
 
 void Service::AppendTitleLanguagePreference(HttpRequest& http_request) const {
+  // Can be "canonical", "english" or "romanized"
+  std::wstring language = L"romanized";
+
+  if (Settings.GetBool(taiga::kApp_List_DisplayEnglishTitles))
+    language = L"english";
+
   if (http_request.method == L"POST") {
-    http_request.data[L"title_language_preference"] = L"english";
+    http_request.data[L"title_language_preference"] = language;
   } else {
-    http_request.url.query[L"title_language_preference"] = L"english";
+    http_request.url.query[L"title_language_preference"] = language;
   }
 }
 
@@ -258,6 +259,10 @@ bool Service::RequestNeedsAuthentication(RequestType request_type) const {
     case kDeleteLibraryEntry:
     case kUpdateLibraryEntry:
       return true;
+    case kGetLibraryEntries:
+    case kGetMetadataById:
+    case kSearchTitle:
+      return !auth_token_.empty();
   }
 
   return false;
@@ -286,6 +291,8 @@ bool Service::RequestSucceeded(Response& response,
         }
       } else {
         response.data[L"error"] += L"Unknown error (" +
+            canonical_name() + L"|" +
+            ToWstr(response.type) + L"|" +
             ToWstr(http_response.code) + L")";
       }
       return false;
@@ -310,6 +317,10 @@ void Service::ParseAnimeObject(Json::Value& value, anime::Item& anime_item) {
   anime_item.SetScore(TranslateSeriesRatingFrom(value["community_rating"].asFloat()));
   anime_item.SetAgeRating(TranslateAgeRatingFrom(StrToWstr(value["age_rating"].asString())));
 
+  int mal_id = value["mal_id"].asInt();
+  if (mal_id > 0)
+    anime_item.SetId(ToWstr(mal_id), sync::kMyAnimeList);
+
   std::vector<std::wstring> genres;
   auto& genres_value = value["genres"];
   for (size_t i = 0; i < genres_value.size(); i++)
@@ -327,10 +338,6 @@ void Service::ParseLibraryObject(Json::Value& value) {
   anime_item.SetSource(this->id());
   anime_item.SetId(ToWstr(anime_value["id"].asInt()), this->id());
   anime_item.SetLastModified(time(nullptr));  // current time
-
-  int mal_id = value["mal_id"].asInt();
-  if (mal_id > 0)
-    anime_item.SetId(ToWstr(mal_id), sync::kMyAnimeList);
 
   ParseAnimeObject(anime_value, anime_item);
 
@@ -350,8 +357,9 @@ bool Service::ParseResponseBody(Response& response, HttpResponse& http_response,
                                 Json::Value& root) {
   Json::Reader reader;
 
-  if (reader.parse(WstrToStr(http_response.body), root))
-    return true;
+  if (http_response.body != L"false")
+    if (reader.parse(WstrToStr(http_response.body), root))
+      return true;
 
   switch (response.type) {
     case kGetLibraryEntries:

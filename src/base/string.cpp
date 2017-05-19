@@ -234,6 +234,9 @@ bool EndsWith(const wstring& str1, const wstring& str2) {
 }
 
 bool IntersectsWith(const std::wstring& str1, const std::wstring& str2) {
+  if (str1.empty() || str2.empty())
+    return false;
+
   return min(str1.size(), str2.size()) ==
          LongestCommonSubsequenceLength(str1, str2);
 }
@@ -478,9 +481,12 @@ bool ReplaceString(wstring& str,
        pos != wstring::npos; pos = str.find(find_this, pos)) {
 
     auto is_whole_word = [&]() {
-      if (pos == 0 || str.at(pos - 1) == L' ') {
+      auto is_boundary = [](wchar_t c) {
+        return iswspace(c) || iswpunct(c);
+      };
+      if (pos == 0 || is_boundary(str.at(pos - 1))) {
         size_t pos_end = pos + find_this.length();
-        if (pos_end >= str.length() || str.at(pos_end) == L' ')
+        if (pos_end >= str.length() || is_boundary(str.at(pos_end)))
           return true;
       }
       return false;

@@ -15,8 +15,8 @@
 		<item name="Library folders" sub="Folders"/>
 		<item name="Scan available episodes" action="ScanEpisodesAll()"/>
 		<item type="separator"/>
-		<item name="Play next episode&#9;Ctrl+N" action="PlayNext()"/>
-		<item name="Play random anime&#9;Ctrl+R" action="PlayRandomAnime()"/>
+		<item name="Play &next episode&#9;Ctrl+N" action="PlayNext()"/>
+		<item name="Play &random anime&#9;Ctrl+R" action="PlayRandomAnime()"/>
 		<item type="separator"/>
 		<item name="E&xit" action="Exit()"/>
 	</menu>
@@ -80,7 +80,7 @@
 	<!-- Help -->
 	<menu name="Help">
 		<item name="About Taiga" action="About()"/>
-		<item name="Support&#9;F1" action="URL(http://taiga.erengy.com/#support)"/>
+		<item name="Support&#9;F1" action="URL(http://taiga.moe/#support)"/>
 		<item type="separator"/>
 		<item name="Check for updates" action="CheckUpdates()"/>
 	</menu>
@@ -102,27 +102,35 @@
 	<!-- Right click -->
 	<menu name="RightClick">
 		<item name="Information" action="Info()"/>
-		<item type="separator"/>
-		<item name="Edit" action="EditAll()"/>
 		<item name="Search" sub="Search"/>
 		<item type="separator"/>
-		<item name="Open folder" action="OpenFolder()"/>
+		<item name="Edit" action="EditAll()"/>
+		<item name="&Delete from list...&#9;Del" action="EditDelete()"/>
+		<item type="separator"/>
+		<item name="Open folder&#9;Ctrl+O" action="OpenFolder()"/>
 		<item name="Scan available episodes&#9;F5" action="ScanEpisodes()"/>
 		<item type="separator"/>
 		<!-- Note: Overwritten -->
 		<item name="Play episode"           sub="PlayEpisode"/>
-		<item name="Play last episode"   action="PlayLast()"/>
-		<item name="Play next episode"   action="PlayNext()"/>
-		<item name="Play random episode" action="PlayRandom()"/>
+		<item name="Play &last episode"   action="PlayLast()"/>
+		<item name="Play &next episode"   action="PlayNext()"/>
+		<item name="Play &random episode" action="PlayRandom()"/>
 	</menu>
 	<!-- Edit -->
 	<menu name="Edit">
-		<item name="Set episode..." action="EditEpisode()"/>
-		<item name="Set score"         sub="EditScore"/>
-		<item name="Set status"        sub="EditStatus"/>
-		<item name="Set tags..."    action="EditTags()"/>
+		<item name="Set &date"          sub="EditDate"/>
+		<item name="Set &episode..." action="EditEpisode()"/>
+		<item name="Set sco&re"         sub="EditScore"/>
+		<item name="Set &status"        sub="EditStatus"/>
+		<item name="Set &tags..."    action="EditTags()"/>
 		<item type="separator"/>
-		<item name="Delete from list..." action="EditDelete()"/>
+		<item name="Delete from &list...&#9;Del" action="EditDelete()"/>
+	</menu>
+	<!-- Date -->
+	<menu name="EditDate">
+		<item name="Clear date started"   action="EditDateClear(0)"/>
+		<item name="Clear date completed" action="EditDateClear(1)"/>
+		<item name="Clear both dates"     action="EditDateClear(2)"/>
 	</menu>
 	<!-- Score -->
 	<menu name="EditScore">
@@ -150,15 +158,15 @@
 	<!-- Search -->
 	<menu name="Search">
 		<!-- Note: Use %title% as the search string -->
-		<item name="AniDB"              action="URL(http://anidb.net/perl-bin/animedb.pl?show=animelist&amp;adb.search=%title%&amp;noalias=1&amp;do.update=update)"/>
-		<item name="Anime News Network" action="URL(http://www.animenewsnetwork.com/search?q=%title%)"/>
-		<item name="Hummingbird"        action="URL(http://hummingbird.me/search?query=%title%&scope=anime)"/>
-		<item name="MyAnimeList"        action="URL(http://myanimelist.net/anime.php?q=%title%)"/>
-		<item name="Wikipedia"          action="URL(http://en.wikipedia.org/wiki/Special:Search?search=%title%)"/>
+		<item name="AniDB"              action="URL(https://anidb.net/perl-bin/animedb.pl?show=animelist&amp;adb.search=%title%&amp;noalias=1&amp;do.update=update)"/>
+		<item name="Anime News Network" action="URL(https://www.animenewsnetwork.com/search?q=%title%)"/>
+		<item name="Hummingbird"        action="URL(https://hummingbird.me/search?query=%title%&scope=anime)"/>
+		<item name="MyAnimeList"        action="URL(https://myanimelist.net/anime.php?q=%title%)"/>
+		<item name="Reddit"             action="URL(https://www.reddit.com/search?sort=new&amp;q=subreddit%3Aanime%20title%3A%22%title%%20episode%20discussion%22)"/>
+		<item name="Wikipedia"          action="URL(https://en.wikipedia.org/wiki/Special:Search?search=%title%)"/>
 		<item type="separator"/>
 		<item name="Custom RSS feed" action="SearchTorrents()"/>
-		<item name="NyaaTorrents" action="SearchTorrents(http://www.nyaa.se/?page=rss&amp;cats=1_37&amp;filter=2&amp;term=%title%)"/>
-		<item name="TokyoTosho"   action="SearchTorrents(http://pipes.yahoo.com/pipes/pipe.run?SearchQuery=%title%&amp;_id=7b99f981c5b1f02354642f4e271cca43&amp;_render=rss)"/>
+		<item name="NyaaTorrents" action="SearchTorrents(https://www.nyaa.se/?page=rss&amp;cats=1_37&amp;filter=2&amp;term=%title%)"/>
 	</menu>
 	<!-- Play episode -->
 	<menu name="PlayEpisode">
@@ -168,11 +176,12 @@
 	<!-- Anime list headers -->
 	<menu name="AnimeListHeaders">
 		<item name="Average score" action="anime_average_rating" checked="1"/>
+		<item name="Season" action="anime_season" checked="1"/>
+		<item name="Type" action="anime_type" checked="1"/>
+		<item type="separator"/>
 		<item name="Last updated" action="user_last_updated" checked="1"/>
 		<item name="Progress" action="user_progress" checked="1"/>
 		<item name="Score" action="user_rating" checked="1"/>
-		<item name="Season" action="anime_season" checked="1"/>
-		<item name="Type" action="anime_type" checked="1"/>
 		<item type="separator"/>
 		<item name="Reset to defaults" action="ResetAnimeListHeaders()"/>
 	</menu>
@@ -192,46 +201,15 @@
 	
 	<!-- History list menu -->
 	<menu name="HistoryList">
-		<item name="Delete" action="Delete()"/>
+		<item name="Information" action="Info()" default="1"/>
+		<item name="Delete&#9;Del" action="Delete()"/>
 		<item type="separator"/>
 		<item name="Clear history..." action="ClearHistory()"/>
 	</menu>
 	
 	<!-- Season browser -->
 	<menu name="SeasonSelect">
-		<item name="2015" sub="Season2015"/>
-		<item name="2014" sub="Season2014"/>
-		<item name="2013" sub="Season2013"/>
-		<item name="2012" sub="Season2012"/>
-		<item name="2011" sub="Season2011"/>
-	</menu>
-	<menu name="Season2015">
-		<item name="Spring 2015" action="Season_Load(2015_spring.xml)"/>
-		<item name="Winter 2015" action="Season_Load(2015_winter.xml)"/>
-	</menu>
-	<menu name="Season2014">
-		<item name="Fall 2014"   action="Season_Load(2014_fall.xml)"/>
-		<item name="Summer 2014" action="Season_Load(2014_summer.xml)"/>
-		<item name="Spring 2014" action="Season_Load(2014_spring.xml)"/>
-		<item name="Winter 2014" action="Season_Load(2014_winter.xml)"/>
-	</menu>
-	<menu name="Season2013">
-		<item name="Fall 2013"   action="Season_Load(2013_fall.xml)"/>
-		<item name="Summer 2013" action="Season_Load(2013_summer.xml)"/>
-		<item name="Spring 2013" action="Season_Load(2013_spring.xml)"/>
-		<item name="Winter 2013" action="Season_Load(2013_winter.xml)"/>
-	</menu>
-	<menu name="Season2012">
-		<item name="Fall 2012"   action="Season_Load(2012_fall.xml)"/>
-		<item name="Summer 2012" action="Season_Load(2012_summer.xml)"/>
-		<item name="Spring 2012" action="Season_Load(2012_spring.xml)"/>
-		<item name="Winter 2012" action="Season_Load(2012_winter.xml)"/>
-	</menu>
-	<menu name="Season2011">
-		<item name="Fall 2011"   action="Season_Load(2011_fall.xml)"/>
-		<item name="Summer 2011" action="Season_Load(2011_summer.xml)"/>
-		<item name="Spring 2011" action="Season_Load(2011_spring.xml)"/>
-		<item name="Winter 2011" action="Season_Load(2011_winter.xml)"/>
+		<!-- Note: Overwritten -->
 	</menu>
 	<menu name="SeasonGroup">
 		<item name="Airing status" action="Season_GroupBy(0)" radio="1"/>
@@ -262,18 +240,19 @@
 	
 	<!-- Torrent list right click -->
 	<menu name="TorrentListRightClick">
-		<item name="Download" action="DownloadTorrent" default="1"/>
-		<item name="Information" action="Info"/>
+		<item name="Download torrent" action="DownloadTorrent" default="1"/>
+		<item name="View anime information" action="Info"/>
+		<item name="View torrent information" action="TorrentInfo"/>
 		<item type="separator"/>
 		<item name="Discard" action="DiscardTorrent"/>
 		<item name="Quick filters" sub="QuickFilters"/>
 		<item type="separator"/>
-		<item name="Search more torrents for this title" action="MoreTorrents"/>
+		<item name="Search for more torrents with this title" action="MoreTorrents"/>
 		<item name="Search for anime with this title" action="SearchService"/>
 	</menu>
 	<menu name="QuickFilters">
-		<item name="Discard all torrents for this title" action="DiscardTorrents"/>
-		<item name="Select this fansub group for this title" action="SelectFansub"/>
+		<item name="Discard all torrents for this anime" action="DiscardTorrents"/>
+		<item name="Select this fansub group for this anime" action="SelectFansub"/>
 	</menu>
 	
 	<!-- Script functions and variables -->

@@ -28,6 +28,9 @@
 #include "ui/dlg/dlg_anime_info.h"
 #include "ui/dlg/dlg_anime_info_page.h"
 #include "ui/dlg/dlg_input.h"
+#include "ui/dlg/dlg_settings.h"
+#include "ui/dlg/dlg_settings_page.h"
+#include "ui/dialog.h"
 #include "ui/theme.h"
 #include "win/win_commondialog.h"
 
@@ -35,6 +38,13 @@ namespace ui {
 
 PageBaseInfo::PageBaseInfo()
     : anime_id_(anime::ID_UNKNOWN), parent(nullptr) {
+}
+
+BOOL PageBaseInfo::OnClose() {
+  if (parent && parent->GetMode() == kDialogModeAnimeInformation)
+    parent->OnCancel();
+
+  return TRUE;  // Disables closing via Escape key
 }
 
 BOOL PageBaseInfo::OnInitDialog() {
@@ -160,8 +170,13 @@ void PageSeriesInfo::Refresh(int anime_id, bool connect) {
   if (!anime_item)
     return;
 
-  // Set synonyms
-  std::wstring text = Join(anime_item->GetSynonyms(), L", ");
+  // Set alternative titles
+  std::wstring main_title = Settings.GetBool(taiga::kApp_List_DisplayEnglishTitles) ?
+      anime_item->GetEnglishTitle(true) : anime_item->GetTitle();
+  std::vector<std::wstring> titles;
+  anime::GetAllTitles(anime_id_, titles);
+  titles.erase(std::remove(titles.begin(), titles.end(), main_title), titles.end());
+  std::wstring text = Join(titles, L", ");
   if (text.empty())
     text = L"-";
   SetDlgItemText(IDC_EDIT_ANIME_ALT, text.c_str());
@@ -214,17 +229,23 @@ BOOL PageMyInfo::OnCommand(WPARAM wParam, LPARAM lParam) {
     // User changed rewatching checkbox
     case IDC_CHECK_ANIME_REWATCH:
       if (HIWORD(wParam) == BN_CLICKED) {
+        win::ComboBox combobox = GetDlgItem(IDC_COMBO_ANIME_STATUS);
         win::Spin spin = GetDlgItem(IDC_SPIN_PROGRESS);
         int episode_value = 0;
         spin.GetPos32(episode_value);
         if (IsDlgButtonChecked(IDC_CHECK_ANIME_REWATCH)) {
+          if (taiga::GetCurrentServiceId() == sync::kHummingbird)
+            combobox.SetCurSel(anime::kWatching - 1);
           if (anime_item->GetMyStatus() == anime::kCompleted &&
               episode_value == anime_item->GetEpisodeCount())
             spin.SetPos32(0);
         } else {
+          if (taiga::GetCurrentServiceId() == sync::kHummingbird)
+            combobox.SetCurSel(anime_item->GetMyStatus() - 1);
           if (episode_value == 0)
             spin.SetPos32(anime_item->GetMyLastWatchedEpisode());
         }
+        combobox.SetWindowHandle(nullptr);
         spin.SetWindowHandle(nullptr);
         return TRUE;
       }
@@ -271,15 +292,20 @@ LRESULT PageMyInfo::OnNotify(int idCtrl, LPNMHDR pnmh) {
           // Set/change fansub group preference
           std::vector<std::wstring> groups;
           anime::GetFansubFilter(anime_id_, groups);
-          std::wstring text = Join(groups, L", ");
-          InputDialog dlg;
-          dlg.title = anime_item->GetTitle();
-          dlg.info = L"Please enter your fansub group preference for this title:";
-          dlg.text = text;
-          dlg.Show(parent->GetWindowHandle());
-          if (dlg.result == IDOK)
-            if (anime::SetFansubFilter(anime_id_, dlg.text))
-              RefreshFansubPreference();
+          if (groups.size() > 1) {
+            ShowDlgSettings(kSettingsSectionTorrents, kSettingsPageTorrentsFilters);
+            RefreshFansubPreference();
+          } else {
+            std::wstring text = Join(groups, L", ");
+            InputDialog dlg;
+            dlg.title = anime_item->GetTitle();
+            dlg.info = L"Please enter your fansub group preference for this title:";
+            dlg.text = text;
+            dlg.Show(parent->GetWindowHandle());
+            if (dlg.result == IDOK && dlg.text != text)
+              if (anime::SetFansubFilter(anime_id_, dlg.text))
+                RefreshFansubPreference();
+          }
           return TRUE;
         }
       }
@@ -338,7 +364,6 @@ void PageMyInfo::Refresh(int anime_id) {
   SendDlgItemMessage(IDC_DATETIME_START, DTM_SETFORMAT, 0, (LPARAM)date_format);
   SendDlgItemMessage(IDC_DATETIME_FINISH, DTM_SETFORMAT, 0, (LPARAM)date_format);
   auto set_default_systemtime = [&](int control_id, SYSTEMTIME& st) {
-    SendDlgItemMessage(control_id, DTM_SETRANGE, GDTR_MIN, (LPARAM)&st);
     SendDlgItemMessage(control_id, DTM_SETSYSTEMTIME, GDT_VALID, (LPARAM)&st);
   };
   if (anime::IsValidDate(anime_item->GetDateStart())) {
@@ -462,7 +487,7 @@ bool PageMyInfo::Save() {
   // Alternative titles
   anime_item->SetUserSynonyms(GetDlgItemText(IDC_EDIT_ANIME_ALT));
   anime_item->SetUseAlternative(IsDlgButtonChecked(IDC_CHECK_ANIME_ALT) == TRUE);
-  Meow.UpdateTitles(*anime_item);
+  Meow.UpdateTitles(*anime_item, true);
 
   // Folder
   anime_item->SetFolder(GetDlgItemText(IDC_EDIT_ANIME_FOLDER));

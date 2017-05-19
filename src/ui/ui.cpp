@@ -35,6 +35,7 @@
 #include "taiga/settings.h"
 #include "taiga/taiga.h"
 #include "track/media.h"
+#include "track/recognition.h"
 #include "win/win_taskbar.h"
 #include "ui/dlg/dlg_anime_info.h"
 #include "ui/dlg/dlg_anime_list.h"
@@ -111,6 +112,10 @@ void OnHttpError(const taiga::HttpClient& http_client, const string_t& error) {
       ChangeStatusText(error);
       DlgTorrent.EnableInput();
       break;
+    case taiga::kHttpSeasonsGet:
+      ChangeStatusText(error);
+      DlgSeason.EnableInput();
+      break;
     case taiga::kHttpTwitterRequest:
     case taiga::kHttpTwitterAuth:
     case taiga::kHttpTwitterPost:
@@ -151,7 +156,7 @@ void OnHttpHeadersAvailable(const taiga::HttpClient& http_client) {
       }
       if (http_client.mode() == taiga::kHttpTaigaUpdateDownload) {
         DlgUpdate.SetDlgItemText(IDC_STATIC_UPDATE_PROGRESS,
-                                    L"Downloading latest update...");
+                                 L"Downloading latest update...");
       }
       break;
     default:
@@ -189,6 +194,9 @@ void OnHttpProgress(const taiga::HttpClient& http_client) {
       break;
     case taiga::kHttpFeedDownload:
       status = L"Downloading torrent file...";
+      break;
+    case taiga::kHttpSeasonsGet:
+      status = L"Downloading anime season data...";
       break;
     case taiga::kHttpTwitterRequest:
       status = L"Connecting to Twitter...";
@@ -319,17 +327,24 @@ void OnLibraryEntryChangeFailure(int id, const string_t& reason) {
     DlgAnime.UpdateTitle(false);
 }
 
-void OnLibraryUpdateFailure(int id, const string_t& reason) {
+void OnLibraryUpdateFailure(int id, const string_t& reason, bool not_approved) {
   auto anime_item = AnimeDatabase.FindItem(id);
 
   std::wstring text;
   if (anime_item)
     text += L"Title: " + anime_item->GetTitle() + L"\n";
-  if (!reason.empty())
-    text += L"Reason: " + reason + L"\n";
-  text += L"Click to try again.";
 
-  Taiga.current_tip_type = taiga::kTipTypeUpdateFailed;
+  if (not_approved) {
+    text += L"Reason: Taiga won't be able to synchronize your list until MAL "
+            L"approves the anime, or you remove it from the update queue.\n"
+            L"Click to go to History page.";
+    Taiga.current_tip_type = taiga::kTipTypeNotApproved;
+  } else {
+    if (!reason.empty())
+      text += L"Reason: " + reason + L"\n";
+    text += L"Click to try again.";
+    Taiga.current_tip_type = taiga::kTipTypeUpdateFailed;
+  }
 
   Taskbar.Tip(L"", L"", 0);  // clear previous tips
   Taskbar.Tip(text.c_str(), L"Update failed", NIIF_ERROR);
@@ -415,20 +430,38 @@ bool OnLibraryEntriesEditTags(const std::vector<int> ids, std::wstring& tags) {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+static bool AnimeListNeedsRefresh(const HistoryItem& history_item) {
+  return history_item.mode == taiga::kHttpServiceAddLibraryEntry ||
+         history_item.mode == taiga::kHttpServiceDeleteLibraryEntry ||
+         history_item.status ||
+         history_item.enable_rewatching;
+}
+
+static bool AnimeListNeedsResort() {
+  auto sort_column = DlgAnimeList.listview.TranslateColumnName(
+      Settings[taiga::kApp_List_SortColumn]);
+  switch (sort_column) {
+    case kColumnUserLastUpdated:
+    case kColumnUserProgress:
+    case kColumnUserRating:
+      return true;
+  }
+  return false;
+}
+
 void OnHistoryAddItem(const HistoryItem& history_item) {
   DlgHistory.RefreshList();
   DlgSearch.RefreshList();
   DlgMain.treeview.RefreshHistoryCounter();
   DlgNowPlaying.Refresh(false, false, false);
 
-  if (history_item.mode == taiga::kHttpServiceAddLibraryEntry ||
-      history_item.mode == taiga::kHttpServiceDeleteLibraryEntry ||
-      history_item.status ||
-      history_item.enable_rewatching) {
+  if (AnimeListNeedsRefresh(history_item)) {
     DlgAnimeList.RefreshList();
     DlgAnimeList.RefreshTabs();
   } else {
     DlgAnimeList.RefreshListItem(history_item.anime_id);
+    if (AnimeListNeedsResort())
+      DlgAnimeList.listview.SortFromSettings();
   }
 
   if (!Taiga.logged_in) {
@@ -440,13 +473,20 @@ void OnHistoryAddItem(const HistoryItem& history_item) {
   }
 }
 
-void OnHistoryChange() {
+void OnHistoryChange(const HistoryItem* history_item) {
   DlgHistory.RefreshList();
   DlgSearch.RefreshList();
   DlgMain.treeview.RefreshHistoryCounter();
   DlgNowPlaying.Refresh(false, false, false);
-  DlgAnimeList.RefreshList();
-  DlgAnimeList.RefreshTabs();
+
+  if (!history_item || AnimeListNeedsRefresh(*history_item)) {
+    DlgAnimeList.RefreshList();
+    DlgAnimeList.RefreshTabs();
+  } else {
+    DlgAnimeList.RefreshListItem(history_item->anime_id);
+    if (AnimeListNeedsResort())
+      DlgAnimeList.listview.SortFromSettings();
+  }
 }
 
 bool OnHistoryClear() {
@@ -508,11 +548,15 @@ int OnHistoryProcessConfirmationQueue(anime::Episode& episode) {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void OnAnimeDelete(int id) {
-  ChangeStatusText(L"Anime is removed from the database: " + ToWstr(id));
+void OnAnimeDelete(int id, const string_t& title) {
+  ChangeStatusText(L"Anime is removed from the database: " + title);
 
-  if (DlgAnime.GetCurrentId() == id)
-    DlgAnime.Destroy();
+  if (DlgAnime.GetCurrentId() == id) {
+    // We're posting a message rather than directly terminating the dialog,
+    // because this function can be called from another thread, and it is not
+    // possible to destroy a window created by a different thread.
+    DlgAnime.PostMessage(WM_CLOSE);
+  }
 
   DlgAnimeList.RefreshList();
   DlgAnimeList.RefreshTabs();
@@ -522,6 +566,9 @@ void OnAnimeDelete(int id) {
   } else {
     DlgNowPlaying.Refresh(false, false, false, false);
   }
+
+  DlgHistory.RefreshList();
+  DlgMain.treeview.RefreshHistoryCounter();
 
   DlgSearch.RefreshList();
   DlgSeason.RefreshList();
@@ -569,7 +616,7 @@ void OnAnimeWatchingStart(const anime::Item& anime_item,
 
   DlgMain.UpdateTip();
   DlgMain.UpdateTitle();
-  if (Settings.GetBool(taiga::kSync_Update_GoToNowPlaying))
+  if (Settings.GetBool(taiga::kSync_GoToNowPlaying_Recognized))
     DlgMain.navigation.SetCurrentPage(kSidebarItemNowPlaying);
 
   if (Settings.GetBool(taiga::kSync_Notify_Recognized)) {
@@ -622,10 +669,13 @@ bool OnRecognitionCancelConfirm() {
 void OnRecognitionFail() {
   if (!CurrentEpisode.anime_title().empty()) {
     MediaPlayers.set_title_changed(false);
+    DlgNowPlaying.SetScores(Meow.GetScores());
     DlgNowPlaying.SetCurrentId(anime::ID_NOTINLIST);
     ChangeStatusText(L"Watching: " + CurrentEpisode.anime_title() +
                      PushString(L" #", anime::GetEpisodeRange(CurrentEpisode)) +
                      L" (Not recognized)");
+    if (Settings.GetBool(taiga::kSync_GoToNowPlaying_NotRecognized))
+      DlgMain.navigation.SetCurrentPage(kSidebarItemNowPlaying);
     if (Settings.GetBool(taiga::kSync_Notify_NotRecognized)) {
       std::wstring tip_text =
           ReplaceVariables(Settings[taiga::kSync_Notify_Format], CurrentEpisode) +
@@ -637,7 +687,7 @@ void OnRecognitionFail() {
 
   } else {
     if (Taiga.debug_mode)
-      ChangeStatusText(MediaPlayers.current_player() + L" is running.");
+      ChangeStatusText(MediaPlayers.current_player_name() + L" is running.");
   }
 }
 
@@ -652,9 +702,26 @@ void OnAnimeListHeaderRatingWarning() {
   dlg.Show(DlgMain.GetWindowHandle());
 }
 
+////////////////////////////////////////////////////////////////////////////////
+
+void OnSeasonLoad(bool refresh) {
+  DlgSeason.RefreshList();
+  DlgSeason.RefreshStatus();
+  DlgSeason.RefreshToolbar();
+  DlgSeason.EnableInput();
+
+  if (refresh && OnSeasonRefreshRequired())
+    DlgSeason.RefreshData();
+}
+
+void OnSeasonLoadFail() {
+  ChangeStatusText(L"Could not load anime season data.");
+  DlgSeason.EnableInput();
+}
+
 bool OnSeasonRefreshRequired() {
   win::TaskDialog dlg;
-  std::wstring title = L"Season - " + SeasonDatabase.name;
+  std::wstring title = L"Season - " + SeasonDatabase.current_season.GetString();
   dlg.SetWindowTitle(title.c_str());
   dlg.SetMainIcon(TD_ICON_INFORMATION);
   dlg.SetMainInstruction(L"Would you like to refresh this season's data?");
@@ -778,6 +845,8 @@ void OnSettingsUserChange() {
   DlgHistory.RefreshList();
   DlgNowPlaying.Refresh();
   DlgSearch.RefreshList();
+  DlgSeason.RefreshList();
+  DlgSeason.RefreshToolbar();
   DlgStats.Refresh();
 }
 
@@ -955,12 +1024,16 @@ void OnUpdateAvailable() {
   DlgUpdateNew.Create(IDD_UPDATE_NEW, DlgUpdate.GetWindowHandle(), true);
 }
 
-void OnUpdateNotAvailable() {
+void OnUpdateNotAvailable(bool relations) {
   if (DlgMain.IsWindow()) {
     win::TaskDialog dlg(L"Update", TD_ICON_INFORMATION);
-    std::wstring footer = L"Current version: " + std::wstring(Taiga.version);
-    dlg.SetFooter(footer.c_str());
-    dlg.SetMainInstruction(L"No updates available. Taiga is up to date!");
+    dlg.SetMainInstruction(L"Taiga is up to date!");
+    std::wstring content = L"Current version: " + std::wstring(Taiga.version);
+    if (relations) {
+      content += L"\n\nUpdated anime relations to: " +
+                 Taiga.Updater.GetCurrentAnimeRelationsModified();
+    }
+    dlg.SetContent(content.c_str());
     dlg.AddButton(L"OK", IDOK);
     dlg.Show(DlgUpdate.GetWindowHandle());
   }

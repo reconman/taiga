@@ -19,6 +19,7 @@
 #include "base/string.h"
 #include "library/anime_filter.h"
 #include "library/anime_item.h"
+#include "library/anime_util.h"
 
 namespace anime {
 
@@ -26,7 +27,7 @@ Filters::Filters() {
   Reset();
 }
 
-bool Filters::CheckItem(const Item& item) {
+bool Filters::CheckItem(const Item& item, int text_index) const {
   // Filter my status
   for (size_t i = 0; i < my_status.size(); i++)
     if (!my_status.at(i) && item.GetMyStatus() == i)
@@ -43,28 +44,39 @@ bool Filters::CheckItem(const Item& item) {
       return false;
 
   // Filter text
-  std::vector<std::wstring> words;
-  Split(text, L" ", words);
-  RemoveEmptyStrings(words);
-  std::wstring genres = Join(item.GetGenres(), L", ");
-  auto synonyms = item.GetSynonyms();
-  for (auto it = words.begin(); it != words.end(); ++it) {
-    if (InStr(item.GetTitle(), *it, 0, true) == -1 &&
-        InStr(genres, *it, 0, true) == -1 &&
-        InStr(item.GetMyTags(), *it, 0, true) == -1) {
-      bool found = false;
-      for (auto synonym = synonyms.begin();
-           !found && synonym != synonyms.end(); ++synonym)
-        if (InStr(*synonym, *it, 0, true) > -1) found = true;
-      if (item.IsInList())
-        for (auto synonym = item.GetUserSynonyms().begin();
-             !found && synonym != item.GetUserSynonyms().end(); ++synonym)
-          if (InStr(*synonym, *it, 0, true) > -1) found = true;
-      if (!found) return false;
-    }
-  }
+  if (!FilterText(item, text_index))
+    return false;
 
   // Item passed all filters
+  return true;
+}
+
+bool Filters::FilterText(const Item& item, int text_index) const {
+  std::vector<std::wstring> words;
+  auto it = text.find(text_index);
+  auto filter_text = it != text.end() ? it->second : std::wstring();
+  Split(filter_text, L" ", words);
+  RemoveEmptyStrings(words);
+
+  std::vector<std::wstring> titles;
+  GetAllTitles(item.GetId(), titles);
+
+  const auto& genres = item.GetGenres();
+
+  for (const auto& word : words) {
+    auto check_strings = [&word](const std::vector<std::wstring>& v) {
+      for (const auto& str : v) {
+        if (InStr(str, word, 0, true) > -1)
+          return true;
+      }
+      return false;
+    };
+    if (!check_strings(titles) &&
+        !check_strings(genres) &&
+        InStr(item.GetMyTags(), word, 0, true) == -1)
+      return false;
+  }
+
   return true;
 }
 
@@ -77,7 +89,7 @@ void Filters::Reset() {
   status.resize(3, true);
   type.resize(6, true);
 
-  text = L"";
+  text.clear();
 }
 
 }  // namespace anime

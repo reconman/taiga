@@ -152,7 +152,8 @@ void Manager::HandleError(Response& response, HttpResponse& http_response) {
     case kGetMetadataById:
       ui::OnLibraryEntryChangeFailure(anime_id, response.data[L"error"]);
       if (response.data.count(L"invalid_id")) {
-        AnimeDatabase.DeleteItem(anime_id);
+        if (AnimeDatabase.DeleteItem(anime_id))
+          AnimeDatabase.SaveDatabase();
       } else {
         // Try making the other request, even though this one failed
         if (response.service_id == kMyAnimeList && anime_item) {
@@ -168,7 +169,8 @@ void Manager::HandleError(Response& response, HttpResponse& http_response) {
     case kDeleteLibraryEntry:
     case kUpdateLibraryEntry:
       History.queue.updating = false;
-      ui::OnLibraryUpdateFailure(anime_id, response.data[L"error"]);
+      ui::OnLibraryUpdateFailure(anime_id, response.data[L"error"],
+                                 response.data.count(L"not_approved"));
       break;
     default:
       ui::ChangeStatusText(response.data[L"error"]);
@@ -226,6 +228,7 @@ void Manager::HandleResponse(Response& response, HttpResponse& http_response) {
     }
 
     case kGetLibraryEntries: {
+      AnimeDatabase.SaveDatabase();
       AnimeDatabase.SaveList();
       ui::ChangeStatusText(L"Successfully downloaded the list.");
       ui::OnLibraryChange();

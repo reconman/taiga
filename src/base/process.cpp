@@ -128,10 +128,44 @@ typedef struct _OBJECT_TYPE_INFORMATION {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-BOOL GetProcessFiles(ULONG process_id,
-                     std::vector<std::wstring>& files_vector) {
+static PSYSTEM_HANDLE_INFORMATION_EX GetSystemHandleInformation() {
   auto NtQuerySystemInformation = reinterpret_cast<_NtQuerySystemInformation>(
       GetLibraryProcAddress("ntdll.dll", "NtQuerySystemInformation"));
+
+  PSYSTEM_HANDLE_INFORMATION_EX handleInfo = nullptr;
+
+  ULONG handleInfoSize = 0x10000;
+  NTSTATUS status = STATUS_INFO_LENGTH_MISMATCH;
+
+  do {
+    handleInfo = reinterpret_cast<PSYSTEM_HANDLE_INFORMATION_EX>(handleInfo ?
+        realloc(handleInfo, handleInfoSize) : malloc(handleInfoSize));
+    ZeroMemory(handleInfo, handleInfoSize);
+
+    ULONG requiredSize = 0;
+    status = NtQuerySystemInformation(
+        SystemHandleInformationEx, handleInfo, handleInfoSize, &requiredSize);
+
+    if (status == STATUS_INFO_LENGTH_MISMATCH) {
+      if (requiredSize > handleInfoSize) {
+        handleInfoSize = requiredSize;
+      } else {
+        handleInfoSize *= 2;
+      }
+    }
+  } while (status == STATUS_INFO_LENGTH_MISMATCH &&
+           handleInfoSize <= 16 * 0x100000);
+
+  if (!NT_SUCCESS(status)) {
+    free(handleInfo);
+    return nullptr;
+  }
+
+  return handleInfo;
+}
+
+BOOL GetProcessFiles(ULONG process_id,
+                     std::vector<std::wstring>& files_vector) {
   auto NtDuplicateObject = reinterpret_cast<_NtDuplicateObject>(
       GetLibraryProcAddress("ntdll.dll", "NtDuplicateObject"));
   auto NtQueryObject = reinterpret_cast<_NtQueryObject>(
@@ -141,22 +175,11 @@ BOOL GetProcessFiles(ULONG process_id,
   if (!processHandle)
     return FALSE;
 
-  NTSTATUS status;
-  ULONG handleInfoSize = 0x10000;
-  auto handleInfo = reinterpret_cast<PSYSTEM_HANDLE_INFORMATION_EX>(
-      malloc(handleInfoSize));
-  while ((status = NtQuerySystemInformation(
-      SystemHandleInformationEx,
-      handleInfo,
-      handleInfoSize,
-      nullptr)) == STATUS_INFO_LENGTH_MISMATCH) {
-    handleInfo = reinterpret_cast<PSYSTEM_HANDLE_INFORMATION_EX>(
-        realloc(handleInfo, handleInfoSize *= 2));
-    if (handleInfoSize > 16 * 1024 * 1024)
-      return FALSE;
-  }
-  if (!NT_SUCCESS(status))
+  auto handleInfo = GetSystemHandleInformation();
+  if (!handleInfo) {
+    CloseHandle(processHandle);
     return FALSE;
+  }
 
   // Type index for files varies between OS versions
   static unsigned short objectTypeFile = 0;
@@ -178,11 +201,7 @@ BOOL GetProcessFiles(ULONG process_id,
 
   for (ULONG_PTR i = 0; i < handleInfo->HandleCount; i++) {
     SYSTEM_HANDLE_EX handle = handleInfo->Handles[i];
-    HANDLE dupHandle = nullptr;
-    POBJECT_TYPE_INFORMATION objectTypeInfo;
-    PVOID objectNameInfo;
-    UNICODE_STRING objectName;
-    ULONG returnLength;
+    NTSTATUS status;
 
     // Check if this handle belongs to the PID the user specified
     if (reinterpret_cast<ULONG>(handle.ProcessId) != process_id)
@@ -193,21 +212,25 @@ BOOL GetProcessFiles(ULONG process_id,
     // Skip access codes that can cause NtDuplicateObject() or NtQueryObject()
     // to hang
     if (handle.GrantedAccess == 0x00100000 ||
+        handle.GrantedAccess == 0x0012008d ||
         handle.GrantedAccess == 0x00120189 ||
         handle.GrantedAccess == 0x0012019f ||
         handle.GrantedAccess == 0x001a019f)
       continue;
 
     // Duplicate the handle so we can query it
-    if (!NT_SUCCESS(NtDuplicateObject(processHandle, handle.Handle,
-                                      GetCurrentProcess(), &dupHandle,
-                                      0, 0, 0))) {
+    HANDLE dupHandle = nullptr;
+    status = NtDuplicateObject(processHandle, handle.Handle,
+                               GetCurrentProcess(), &dupHandle, 0, 0, 0);
+    if (!NT_SUCCESS(status))
       continue;
-    }
     // Query the object type
-    objectTypeInfo = reinterpret_cast<POBJECT_TYPE_INFORMATION>(malloc(0x1000));
-    if (!NT_SUCCESS(NtQueryObject(dupHandle, ObjectTypeInformation,
-                                  objectTypeInfo, 0x1000, NULL))) {
+    POBJECT_TYPE_INFORMATION objectTypeInfo =
+        reinterpret_cast<POBJECT_TYPE_INFORMATION>(malloc(0x1000));
+    status = NtQueryObject(dupHandle, ObjectTypeInformation, objectTypeInfo,
+                           0x1000, nullptr);
+    if (!NT_SUCCESS(status)) {
+      free(objectTypeInfo);
       CloseHandle(dupHandle);
       continue;
     }
@@ -220,26 +243,26 @@ BOOL GetProcessFiles(ULONG process_id,
         LOG(LevelDebug, L"objectTypeFile is set to " +
                         ToWstr(objectTypeFile) + L".");
       } else {
+        free(objectTypeInfo);
+        CloseHandle(dupHandle);
         continue;
       }
     }
 
-    objectNameInfo = malloc(0x1000);
-
     base::ErrorMode error_mode(SEM_FAILCRITICALERRORS);
 
-    if (!NT_SUCCESS(NtQueryObject(dupHandle, ObjectNameInformation,
-                                  objectNameInfo, 0x1000, &returnLength))) {
-      if (returnLength > 0x10000) {
-        free(objectTypeInfo);
-        free(objectNameInfo);
-        CloseHandle(dupHandle);
-        continue;
+    ULONG returnLength;
+    PVOID objectNameInfo = malloc(0x1000);
+    status = NtQueryObject(dupHandle, ObjectNameInformation,
+                           objectNameInfo, 0x1000, &returnLength);
+    if (!NT_SUCCESS(status)) {
+      if (returnLength <= 0x10000) {
+        // Reallocate the buffer and try again
+        objectNameInfo = realloc(objectNameInfo, returnLength);
+        status = NtQueryObject(dupHandle, ObjectNameInformation,
+                               objectNameInfo, returnLength, nullptr);
       }
-      // Reallocate the buffer and try again
-      objectNameInfo = realloc(objectNameInfo, returnLength);
-      if (!NT_SUCCESS(NtQueryObject(dupHandle, ObjectNameInformation,
-                                    objectNameInfo, returnLength, NULL))) {
+      if (!NT_SUCCESS(status)) {
         free(objectTypeInfo);
         free(objectNameInfo);
         CloseHandle(dupHandle);
@@ -248,12 +271,11 @@ BOOL GetProcessFiles(ULONG process_id,
     }
 
     DWORD errorCode = GetLastError();
-    if (errorCode != ERROR_SUCCESS) {
+    if (errorCode != ERROR_SUCCESS)
       SetLastError(ERROR_SUCCESS);
-    }
 
     // Cast our buffer into a UNICODE_STRING
-    objectName = *reinterpret_cast<PUNICODE_STRING>(objectNameInfo);
+    UNICODE_STRING objectName = *reinterpret_cast<PUNICODE_STRING>(objectNameInfo);
     // Add file path to our list
     if (objectName.Length) {
       std::wstring object_name(objectName.Buffer, objectName.Length / 2);
@@ -367,36 +389,4 @@ bool IsFullscreen(HWND hwnd) {
 
 PVOID GetLibraryProcAddress(PSTR dll_module, PSTR proc_name) {
   return GetProcAddress(GetModuleHandleA(dll_module), proc_name);
-}
-
-bool TranslateDeviceName(std::wstring& path) {
-  size_t pos = path.find('\\', 8);
-  if (pos == std::wstring::npos)
-    return false;
-  std::wstring device_name = path.substr(0, pos);
-  path = path.substr(pos);
-
-  const int size = 1024;
-  WCHAR szTemp[size] = {'\0'};
-  if (!GetLogicalDriveStrings(size - 1, szTemp))
-    return false;
-
-  WCHAR* p = szTemp;
-  bool bFound = false;
-  WCHAR szName[MAX_PATH];
-  WCHAR szDrive[3] = L" :";
-
-  do {
-    *szDrive = *p;
-    if (QueryDosDevice(szDrive, szName, MAX_PATH)) {
-      if (device_name == szName) {
-        device_name = szDrive;
-        bFound = true;
-      }
-    }
-    while (*p++);
-  } while (!bFound && *p);
-
-  path = device_name + path;
-  return bFound;
 }

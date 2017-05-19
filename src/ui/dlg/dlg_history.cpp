@@ -48,9 +48,9 @@ BOOL HistoryDialog::OnInitDialog() {
   list_.SetTheme();
 
   // Insert list columns
-  list_.InsertColumn(0, 250, 100, LVCFMT_LEFT, L"Anime title");
-  list_.InsertColumn(1, 100, 100, LVCFMT_LEFT, L"Details");
-  list_.InsertColumn(2, 120, 120, LVCFMT_LEFT, L"Last modified");
+  list_.InsertColumn(0, ScaleX(250), ScaleX(100), LVCFMT_LEFT, L"Anime title");
+  list_.InsertColumn(1, ScaleX(100), ScaleX(100), LVCFMT_LEFT, L"Details");
+  list_.InsertColumn(2, ScaleX(120), ScaleX(120), LVCFMT_LEFT, L"Last modified");
 
   // Insert list groups
   list_.InsertGroup(0, L"Queued for update");
@@ -83,7 +83,8 @@ void HistoryDialog::OnContextMenu(HWND hwnd, POINT pt) {
     if (action == L"Delete()") {
       RemoveSelectedItems();
     } else {
-      ExecuteAction(action);
+      int anime_id = GetAnimeIdFromSelectedListItem(list_);
+      ExecuteAction(action, 0, anime_id);
     }
   }
 }
@@ -108,9 +109,7 @@ LRESULT HistoryDialog::OnNotify(int idCtrl, LPNMHDR pnmh) {
       // Double click
       case NM_DBLCLK: {
         if (list_.GetSelectedCount() > 0) {
-          auto lpnmitem = reinterpret_cast<LPNMITEMACTIVATE>(pnmh);
-          int item_index = list_.GetNextItem(-1, LVNI_SELECTED);
-          int anime_id = list_.GetItemParam(item_index);
+          int anime_id = GetAnimeIdFromSelectedListItem(list_);
           ShowDlgAnimeInfo(anime_id);
         }
         break;
@@ -144,10 +143,20 @@ BOOL HistoryDialog::PreTranslateMessage(MSG* pMsg) {
             }
             break;
           }
+          // Display anime information
+          case VK_RETURN: {
+            int anime_id = GetAnimeIdFromSelectedListItem(list_);
+            if (anime::IsValidId(anime_id)) {
+              ShowDlgAnimeInfo(anime_id);
+              return TRUE;
+            }
+            break;
+          }
           // Delete selected items
           case VK_DELETE: {
             if (RemoveSelectedItems())
               return TRUE;
+            break;
           }
         }
       }
@@ -205,9 +214,9 @@ void HistoryDialog::RefreshList() {
     if (it->tags)
       AppendString(details, L"Tags: \"" + *it->tags + L"\"");
     if (it->date_start)
-      AppendString(details, L"Start date: " + std::wstring(*it->date_start));
+      AppendString(details, L"Date started: " + std::wstring(*it->date_start));
     if (it->date_finish)
-      AppendString(details, L"Finish date: " + std::wstring(*it->date_finish));
+      AppendString(details, L"Date completed: " + std::wstring(*it->date_finish));
 
     list_.InsertItem(i, 0, icon, 0, nullptr, anime_item->GetTitle().c_str(),
                      static_cast<LPARAM>(it->anime_id));

@@ -45,6 +45,16 @@ void Episode::Set(int anime_id) {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+anitomy::Elements& Episode::elements() {
+  return elements_;
+}
+
+const anitomy::Elements& Episode::elements() const {
+  return elements_;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 int Episode::anime_season() const {
   return GetElementAsInt(anitomy::kElementAnimeSeason);
 }
@@ -65,25 +75,12 @@ std::wstring Episode::audio_terms() const {
   return GetElementsAsString(anitomy::kElementAudioTerm);
 }
 
-anitomy::Elements& Episode::elements() {
-  return elements_;
-}
-
-const anitomy::Elements& Episode::elements() const {
-  return elements_;
-}
-
 int Episode::episode_number() const {
   return GetElementAsInt(anitomy::kElementEpisodeNumber);
 }
 
-episode_number_range_t Episode::episode_number_range() const {
-  auto numbers = elements_.get_all(anitomy::kElementEpisodeNumber);
-  episode_number_range_t range{
-    numbers.empty() ? 0 : ToInt(numbers.front()),
-    numbers.empty() ? 0 : ToInt(numbers.back())
-  };
-  return range;
+number_range_t Episode::episode_number_range() const {
+  return GetElementAsRange(anitomy::kElementEpisodeNumber);
 }
 
 const std::wstring& Episode::episode_title() const {
@@ -124,6 +121,14 @@ const std::wstring& Episode::video_resolution() const {
 
 std::wstring Episode::video_terms() const {
   return GetElementsAsString(anitomy::kElementVideoTerm);
+}
+
+int Episode::volume_number() const {
+  return GetElementAsInt(anitomy::kElementVolumeNumber);
+}
+
+number_range_t Episode::volume_number_range() const {
+  return GetElementAsRange(anitomy::kElementVolumeNumber);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -195,6 +200,10 @@ void Episode::set_video_terms(const std::wstring& str) {
   SetElementValue(anitomy::kElementVideoTerm, str);
 }
 
+void Episode::set_volume_number(int value) {
+  SetElementValue(anitomy::kElementVolumeNumber, value);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 int Episode::GetElementAsInt(anitomy::ElementCategory category,
@@ -208,6 +217,15 @@ const std::wstring& Episode::GetElementAsString(anitomy::ElementCategory categor
   return it != elements_.end() ? it->second : EmptyString();
 }
 
+number_range_t Episode::GetElementAsRange(anitomy::ElementCategory category) const {
+  const auto numbers = elements_.get_all(category);
+  number_range_t range{
+    numbers.empty() ? 0 : ToInt(numbers.front()),
+    numbers.empty() ? 0 : ToInt(numbers.back())
+  };
+  return range;
+}
+
 std::wstring Episode::GetElementsAsString(anitomy::ElementCategory category) const {
   return Join(elements_.get_all(category), L" ");
 }
@@ -215,12 +233,12 @@ std::wstring Episode::GetElementsAsString(anitomy::ElementCategory category) con
 ////////////////////////////////////////////////////////////////////////////////
 
 void Episode::SetElementValue(anitomy::ElementCategory category, int value) {
-  elements_.get(category) = ToWstr(value);
+  elements_.set(category, ToWstr(value));
 }
 
 void Episode::SetElementValue(anitomy::ElementCategory category,
                               const std::wstring& str) {
-  elements_.get(category) = str;
+  elements_.set(category, str);
 }
 
 }  // namespace anime

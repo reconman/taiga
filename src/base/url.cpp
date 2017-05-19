@@ -64,6 +64,7 @@ std::wstring Url::Build() const {
 
   switch (protocol) {
     case base::http::kHttp:
+    case base::http::kRelative:
     default:
       url += L"http";
       break;
@@ -99,6 +100,12 @@ void Url::Crack(std::wstring url) {
     url = url.substr(i + 3);
     if (IsEqual(scheme, L"https"))
       protocol = base::http::kHttps;
+  } else {
+    i = url.find(L"//", 0);
+    if (i == 0) {
+      url = url.substr(2);
+      protocol = base::http::kRelative;
+    }
   }
 
   // Get host and path
@@ -164,7 +171,7 @@ std::wstring DecodeUrl(const std::wstring& input) {
         IsHexadecimalChar(input[i + 1]) && IsHexadecimalChar(input[i + 2])) {
       char c = 0;
       static const wchar_t* digits = L"0123456789ABCDEF";
-      for (size_t j = 0; j < 16; j++) {
+      for (char j = 0; j < 16; j++) {
         if (input[i + 1] == digits[j])
           c += j << 4;
         if (input[i + 2] == digits[j])

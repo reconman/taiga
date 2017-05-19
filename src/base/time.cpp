@@ -103,10 +103,52 @@ base::CompareResult Date::Compare(const Date& date) const {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+Duration::Duration(time_t time)
+    : time_(time) {
+}
+
+float Duration::seconds() const {
+  return static_cast<float>(time_);
+}
+
+float Duration::minutes() const {
+  return static_cast<float>(time_) / kToMinutes;
+}
+
+float Duration::hours() const {
+  return static_cast<float>(time_) / kToHours;
+}
+
+float Duration::days() const {
+  return static_cast<float>(time_) / kToDays;
+}
+
+float Duration::months() const {
+  return static_cast<float>(time_) / kToMonths;
+}
+
+float Duration::years() const {
+  return static_cast<float>(time_) / kToYears;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 static void NeutralizeTimezone(tm& t) {
-  long timezone_difference = 0;
-  if (_get_timezone(&timezone_difference) == 0)
-    t.tm_sec -= timezone_difference;  // mktime uses the current time zone
+  static bool initialized = false;
+  static long timezone_difference = 0;
+
+  if (!initialized) {
+    _tzset();
+    _get_timezone(&timezone_difference);
+
+    long dst_difference = 0;
+    _get_dstbias(&dst_difference);
+    timezone_difference += dst_difference;
+
+    initialized = true;
+  }
+
+  t.tm_sec -= timezone_difference;  // mktime uses the current time zone
 }
 
 time_t ConvertIso8601(const std::wstring& datetime) {
@@ -137,8 +179,9 @@ time_t ConvertIso8601(const std::wstring& datetime) {
       t.tm_min += sign * ToInt(m[9].str());
     }
     NeutralizeTimezone(t);
+    t.tm_isdst = -1;
 
-    result = mktime(&t);
+    result = std::mktime(&t);
   }
 
   return result;
@@ -175,52 +218,110 @@ time_t ConvertRfc822(const std::wstring& datetime) {
     if (m[7].matched)
       t.tm_sec = ToInt(m[7].str());
 
-    // TODO: Get time zone from m[8]
+    // TODO: Handle other time zones
+    if (StartsWith(m[8].str(), L"+") || StartsWith(m[8].str(), L"-")) {
+      int sign = StartsWith(m[8].str(), L"+") ? 1 : -1;
+      t.tm_hour += sign * ToInt(m[8].str().substr(1, 3));
+      t.tm_min += sign * ToInt(m[8].str().substr(3, 5));
+    }
     NeutralizeTimezone(t);
+    t.tm_isdst = -1;
 
-    result = mktime(&t);
+    result = std::mktime(&t);
   }
 
   return result;
 }
 
-std::wstring GetRelativeTimeString(time_t unix_time) {
-  if (!unix_time)
-    return L"Unknown";
+std::wstring ConvertRfc822ToLocal(const std::wstring& datetime) {
+  auto time = ConvertRfc822(datetime);
 
+  std::tm local_tm = {0};
+  if (localtime_s(&local_tm, &time) != 0)
+    return datetime;
+
+  std::string result(100, '\0');
+  std::strftime(&result.at(0), result.size(),
+                "%a, %d %b %Y %H:%M:%S", &local_tm);
+
+  TIME_ZONE_INFORMATION time_zone_info = {0};
+  const auto time_zone_id = GetTimeZoneInformation(&time_zone_info);
+  const auto bias = time_zone_info.Bias + time_zone_info.DaylightBias;
+
+  std::wstring sign = bias <= 0 ? L"+" : L"-";
+  int hh = std::abs(bias) / 60;
+  int mm = std::abs(bias) % 60;
+
+  std::wstring result_with_tz = StrToWstr(result) + L" " + sign +
+      PadChar(ToWstr(hh), L'0', 2) +
+      PadChar(ToWstr(mm), L'0', 2);
+
+  return result_with_tz;
+}
+
+std::wstring GetAbsoluteTimeString(time_t unix_time) {
   std::tm tm;
-  if (localtime_s(&tm, &unix_time)) {
+
+  if (!unix_time || localtime_s(&tm, &unix_time))
     return L"Unknown";
-  }
 
-  std::wstring str;
-  auto date_now = GetDate();
+  Duration duration(std::abs(time(nullptr) - unix_time));
+  Date today = GetDate();
 
-  auto str_time = [](std::tm& tm, const char* format) {
+  auto strftime = [&tm](const char* format) {
     std::string result(100, '\0');
     std::strftime(&result.at(0), result.size(), format, &tm);
     return StrToWstr(result);
   };
 
-  if (1900 + tm.tm_year < date_now.year) {
-    str = Date(1900 + tm.tm_year, tm.tm_mon + 1, tm.tm_mday);  // YYYY-MM-DD
-  } else if (tm.tm_mon + 1 < date_now.month) {
-    str = str_time(tm, "%B %d");  // January 1
+  if (1900 + tm.tm_year < today.year) {
+    return strftime("%d %B %Y");  // 01 January 2014
+  } else if (std::lround(duration.days()) <= 1 && tm.tm_mday == today.day) {
+    return strftime("%H:%M");  // 13:37
+  } else if (std::lround(duration.days()) <= 7) {
+    return strftime("%A, %d %B");  // Thursday, 01 January
   } else {
-    time_t seconds = time(nullptr) - unix_time;
-    if (seconds >= 60 * 60 * 24) {
-      auto value = std::lround(static_cast<float>(seconds) / (60 * 60 * 24));
-      str = ToWstr(value) + (value == 1 ? L" day" : L" days");
-    } else if (seconds >= 60 * 60) {
-      auto value = std::lround(static_cast<float>(seconds) / (60 * 60));
-      str = ToWstr(value) + (value == 1 ? L" hour" : L" hours");
-    } else if (seconds >= 60) {
-      auto value = std::lround(static_cast<float>(seconds) / 60);
-      str = ToWstr(value) + (value == 1 ? L" minute" : L" minutes");
+    return strftime("%d %B");  // 01 January
+  }
+}
+
+std::wstring GetRelativeTimeString(time_t unix_time, bool append_suffix) {
+  if (!unix_time)
+    return L"Unknown";
+
+  time_t time_diff = time(nullptr) - unix_time;
+  Duration duration(std::abs(time_diff));
+  bool future = time_diff < 0;
+
+  std::wstring str;
+
+  auto str_value = [](const float value,
+                      const std::wstring& singular,
+                      const std::wstring& plural) {
+    long result = std::lround(value);
+    return ToWstr(result) + L" " + (result == 1 ? singular : plural);
+  };
+
+  if (duration.seconds() < 90) {
+    str = L"a moment";
+  } else if (duration.minutes() < 45) {
+    str = str_value(duration.minutes(), L"minute", L"minutes");
+  } else if (duration.hours() < 22) {
+    str = str_value(duration.hours(), L"hour", L"hours");
+  } else if (duration.days() < 25) {
+    str = str_value(duration.days(), L"day", L"days");
+  } else if (duration.days() < 345) {
+    str = str_value(duration.months(), L"month", L"months");
+  } else {
+    str = str_value(duration.years(), L"year", L"years");
+  }
+
+  if (append_suffix) {
+    if (future) {
+      str = L"in " + str;
     } else {
-      str = L"a moment";
+      str += L" ago";
     }
-    str += L" ago";
   }
 
   return str;

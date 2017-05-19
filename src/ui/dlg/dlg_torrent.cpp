@@ -16,6 +16,7 @@
 ** along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include "base/file.h"
 #include "base/gfx.h"
 #include "base/string.h"
 #include "base/url.h"
@@ -40,9 +41,6 @@ namespace ui {
 TorrentDialog DlgTorrent;
 
 BOOL TorrentDialog::OnInitDialog() {
-  // Set properties
-  SetSizeMin(470, 260);
-
   // Create list
   list_.Attach(GetDlgItem(IDC_LIST_TORRENT));
   list_.EnableGroupView(true);
@@ -52,14 +50,14 @@ BOOL TorrentDialog::OnInitDialog() {
   list_.SetTheme();
 
   // Insert list columns
-  list_.InsertColumn(0, 240, 240, LVCFMT_LEFT,  L"Anime title");
-  list_.InsertColumn(1,  60,  60, LVCFMT_RIGHT, L"Episode");
-  list_.InsertColumn(2, 100, 100, LVCFMT_LEFT,  L"Group");
-  list_.InsertColumn(3,  70,  70, LVCFMT_RIGHT, L"Size");
-  list_.InsertColumn(4, 100, 100, LVCFMT_LEFT,  L"Video");
-  list_.InsertColumn(5, 200, 200, LVCFMT_LEFT,  L"Description");
-  list_.InsertColumn(6, 200, 200, LVCFMT_LEFT,  L"Filename");
-  list_.InsertColumn(7, 190, 190, LVCFMT_RIGHT, L"Release date");
+  list_.InsertColumn(0, ScaleX(240), ScaleX(240), LVCFMT_LEFT,  L"Anime title");
+  list_.InsertColumn(1,  ScaleX(60),  ScaleX(60), LVCFMT_RIGHT, L"Episode");
+  list_.InsertColumn(2, ScaleX(100), ScaleX(100), LVCFMT_LEFT,  L"Group");
+  list_.InsertColumn(3,  ScaleX(70),  ScaleX(70), LVCFMT_RIGHT, L"Size");
+  list_.InsertColumn(4, ScaleX(100), ScaleX(100), LVCFMT_LEFT,  L"Video");
+  list_.InsertColumn(5, ScaleX(200), ScaleX(200), LVCFMT_LEFT,  L"Description");
+  list_.InsertColumn(6, ScaleX(200), ScaleX(200), LVCFMT_LEFT,  L"Filename");
+  list_.InsertColumn(7, ScaleX(190), ScaleX(190), LVCFMT_RIGHT, L"Release date");
   // Insert list groups
   list_.InsertGroup(0, L"Anime");
   list_.InsertGroup(1, L"Batch");
@@ -67,7 +65,7 @@ BOOL TorrentDialog::OnInitDialog() {
 
   // Create main toolbar
   toolbar_.Attach(GetDlgItem(IDC_TOOLBAR_TORRENT));
-  toolbar_.SetImageList(ui::Theme.GetImageList16().GetHandle(), 16, 16);
+  toolbar_.SetImageList(ui::Theme.GetImageList16().GetHandle(), ScaleX(16), ScaleY(16));
   toolbar_.SendMessage(TB_SETEXTENDEDSTYLE, 0, TBSTYLE_EX_DRAWDDARROWS | TBSTYLE_EX_MIXEDBUTTONS);
   // Insert toolbar buttons
   BYTE fsState = TBSTATE_ENABLED;
@@ -165,7 +163,7 @@ void TorrentDialog::OnContextMenu(HWND hwnd, POINT pt) {
   if (pt.x == -1 || pt.y == -1)
     GetPopupMenuPositionForSelectedListItem(list_, pt);
 
-  ui::Menus.UpdateTorrentsList(anime::IsValidId(feed_item->episode_data.anime_id));
+  ui::Menus.UpdateTorrentsList(*feed_item);
   std::wstring answer = ui::Menus.Show(GetWindowHandle(), pt.x, pt.y, L"TorrentListRightClick");
 
   if (answer == L"DownloadTorrent") {
@@ -173,6 +171,9 @@ void TorrentDialog::OnContextMenu(HWND hwnd, POINT pt) {
 
   } else if (answer == L"Info") {
     ShowDlgAnimeInfo(feed_item->episode_data.anime_id);
+
+  } else if (answer == L"TorrentInfo") {
+    ExecuteLink(feed_item->info_link);
 
   } else if (answer == L"DiscardTorrent") {
     feed_item->state = kFeedItemDiscardedNormal;
@@ -263,13 +264,15 @@ LRESULT TorrentDialog::OnNotify(int idCtrl, LPNMHDR pnmh) {
           break;
         LPNMLISTVIEW pnmv = reinterpret_cast<LPNMLISTVIEW>(pnmh);
         if (pnmv->uOldState != 0 && (pnmv->uNewState == 0x1000 || pnmv->uNewState == 0x2000)) {
-          bool checked = list_.GetCheckState(pnmv->iItem) == TRUE;
+          const bool checked = list_.GetCheckState(pnmv->iItem) == TRUE;
+          const int group = list_.GetItemGroup(list_.last_checked_item);
           if (list_.last_checked_item > -1 && (GetKeyState(VK_SHIFT) & 0x8000) &&
-              list_.GetItemGroup(pnmv->iItem) == list_.GetItemGroup(list_.last_checked_item)) {
+              list_.GetItemGroup(pnmv->iItem) == group) {
             int item_index = min(pnmv->iItem, list_.last_checked_item);
-            int last_index = max(pnmv->iItem, list_.last_checked_item);
+            const int last_index = max(pnmv->iItem, list_.last_checked_item);
             do {
-              list_.SetCheckState(item_index, checked);
+              if (list_.GetItemGroup(item_index) == group)
+                list_.SetCheckState(item_index, checked);
               if (item_index == last_index)
                 break;
               item_index = list_.GetNextItem(item_index, LVNI_ALL);
@@ -290,6 +293,23 @@ LRESULT TorrentDialog::OnNotify(int idCtrl, LPNMHDR pnmh) {
           FeedItem* feed_item = reinterpret_cast<FeedItem*>(list_.GetItemParam(pnmv->iItem));
           if (feed_item) {
             feed_item->state = checked ? kFeedItemSelected : kFeedItemDiscardedNormal;
+          }
+        }
+        break;
+      }
+
+      // Key press
+      case LVN_KEYDOWN: {
+        auto pnkd = reinterpret_cast<LPNMLVKEYDOWN>(pnmh);
+        switch (pnkd->wVKey) {
+          case VK_RETURN: {
+            auto param = GetParamFromSelectedListItem(list_);
+            if (param) {
+              auto feed_item = reinterpret_cast<FeedItem*>(param);
+              Aggregator.Download(kFeedCategoryLink, feed_item);
+              return TRUE;
+            }
+            break;
           }
         }
         break;
@@ -401,19 +421,8 @@ void TorrentDialog::RefreshList() {
       continue;
 
     std::wstring title, number, video;
-    int group = kTorrentCategoryAnime;
+    int group = it->GetTorrentCategory();
     int icon = StatusToIcon(anime::kUnknownStatus);
-    const auto& file_extension = it->episode_data.file_extension();
-    if (it->category == L"Batch" ||
-        InStr(it->title, L"Vol.") > -1 ||
-        file_extension.empty() ||
-        anime::IsEpisodeRange(it->episode_data)) {
-      group = kTorrentCategoryBatch;
-    } else if (!it->episode_data.episode_number() ||
-               !Meow.IsValidAnimeType(it->episode_data) ||
-               !Meow.IsValidFileExtension(file_extension)) {
-      group = kTorrentCategoryOther;
-    }
     auto anime_item = AnimeDatabase.FindItem(it->episode_data.anime_id);
     if (anime_item) {
       icon = StatusToIcon(anime_item->GetAiringStatus());
@@ -424,7 +433,11 @@ void TorrentDialog::RefreshList() {
       group = kTorrentCategoryOther;
       title = it->title;
     }
-    number = anime::GetEpisodeRange(it->episode_data);
+    if (!it->episode_data.elements().empty(anitomy::kElementEpisodeNumber)) {
+      number = anime::GetEpisodeRange(it->episode_data);
+    } else if (!it->episode_data.elements().empty(anitomy::kElementVolumeNumber)) {
+      number = L"Vol. " + GetVolumeRange(it->episode_data);
+    }
     if (it->episode_data.release_version() != 1) {
       number += L"v" + ToWstr(it->episode_data.release_version());
     }
@@ -442,7 +455,7 @@ void TorrentDialog::RefreshList() {
     list_.SetItem(index, 4, video.c_str());
     list_.SetItem(index, 5, it->description.c_str());
     list_.SetItem(index, 6, it->episode_data.file_name_with_extension().c_str());
-    list_.SetItem(index, 7, it->pub_date.c_str());
+    list_.SetItem(index, 7, ConvertRfc822ToLocal(it->pub_date).c_str());
     list_.SetCheckState(index, it->state == kFeedItemSelected);
   }
 

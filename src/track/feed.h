@@ -26,6 +26,10 @@
 #include "library/anime_episode.h"
 #include "track/feed_filter.h"
 
+namespace pugi {
+class xml_document;
+}
+
 enum FeedItemState {
   kFeedItemBlank,
   kFeedItemDiscardedNormal,
@@ -78,9 +82,12 @@ public:
   void Discard(int option);
   bool IsDiscarded() const;
 
+  TorrentCategory GetTorrentCategory() const;
+
   bool operator<(const FeedItem& item) const;
   bool operator==(const FeedItem& item) const;
 
+  std::wstring info_link;
   std::wstring magnet_link;
   FeedItemState state;
 
@@ -115,8 +122,12 @@ public:
 
   std::wstring GetDataPath();
   bool Load();
+  bool Load(const std::wstring& data);
 
   FeedCategory category;
+
+private:
+  void Load(const pugi::xml_document& document);
 };
 
 ////////////////////////////////////////////////////////////////////////////////

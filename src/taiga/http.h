@@ -44,6 +44,8 @@ enum HttpClientMode {
   kHttpFeedCheck,
   kHttpFeedCheckAuto,
   kHttpFeedDownload,
+  // Seasons
+  kHttpSeasonsGet,
   // Twitter
   kHttpTwitterRequest,
   kHttpTwitterAuth,
@@ -69,7 +71,7 @@ protected:
   bool OnHeadersAvailable();
   bool OnProgress();
   void OnReadComplete();
-  bool OnRedirect(const std::wstring& address);
+  bool OnRedirect(const std::wstring& address, bool refresh);
 
 private:
   HttpClientMode mode_;

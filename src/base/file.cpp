@@ -124,7 +124,8 @@ QWORD GetFolderSize(const std::wstring& path, bool recursive) {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-bool Execute(const std::wstring& path, const std::wstring& parameters) {
+bool Execute(const std::wstring& path, const std::wstring& parameters,
+             int show_command) {
   if (path.empty())
     return false;
 
@@ -132,7 +133,7 @@ bool Execute(const std::wstring& path, const std::wstring& parameters) {
     return ExecuteFile(path, parameters);
 
   auto value = ShellExecute(nullptr, L"open", path.c_str(), parameters.c_str(),
-                            nullptr, SW_SHOWNORMAL);
+                            nullptr, show_command);
   return reinterpret_cast<int>(value) > 32;
 }
 
@@ -186,6 +187,13 @@ int DeleteFolder(std::wstring path) {
   return SHFileOperation(&fos);
 }
 
+void ConvertToLongPath(std::wstring& path) {
+  const DWORD buffer_size = 4096;
+  WCHAR buffer[buffer_size] = {0};
+  if (GetLongPathName(path.c_str(), buffer, buffer_size) > 0)
+    path = std::wstring(buffer);
+}
+
 // Extends the length limit from 260 to 32767 characters
 // See: http://msdn.microsoft.com/en-us/library/windows/desktop/aa365247%28v=vs.85%29.aspx#maxpath
 std::wstring GetExtendedLengthPath(const std::wstring& path) {
@@ -217,6 +225,59 @@ bool IsSystemFile(const WIN32_FIND_DATA& find_data) {
 bool IsValidDirectory(const WIN32_FIND_DATA& find_data) {
   return wcscmp(find_data.cFileName, L".") != 0 &&
          wcscmp(find_data.cFileName, L"..") != 0;
+}
+
+bool TranslateDeviceName(std::wstring& path) {
+  if (!StartsWith(path, L"\\Device\\"))
+    return false;
+
+  size_t pos = path.find('\\', 8);
+  if (pos == std::wstring::npos)
+    return false;
+  std::wstring device_name = path.substr(0, pos);
+  path = path.substr(pos);
+
+  const int drive_letters_size = 1024;
+  WCHAR drive_letters[drive_letters_size] = {'\0'};
+  if (!GetLogicalDriveStrings(drive_letters_size - 1, drive_letters))
+    return false;
+
+  WCHAR* p = drive_letters;
+  WCHAR device[MAX_PATH];
+  WCHAR logical_drive[3] = L" :";
+  std::wstring drive_letter;
+
+  do {
+    *logical_drive = *p;
+    if (QueryDosDevice(logical_drive, device, MAX_PATH)) {
+      if (device_name == device) {
+        drive_letter = logical_drive;
+      } else {
+        const std::wstring network_prefix = L"\\Device\\LanmanRedirector";
+        std::wstring location = device;
+        if (StartsWith(location, network_prefix)) {
+          location.erase(0, network_prefix.size());
+          if (StartsWith(location, L"\\;")) {
+            pos = location.find('\\', 1);
+            if (pos != std::wstring::npos)
+              location.erase(0, pos);
+          }
+          if (StartsWith(path, location)) {
+            drive_letter = logical_drive;
+            path.erase(0, location.size());
+          }
+        }
+      }
+    }
+    while (*p++);
+  } while (drive_letter.empty() && *p);
+
+  if (drive_letter.empty())
+    drive_letter = L"\\";  // assuming that it's a remote drive
+
+  path = drive_letter + path;
+
+  return true;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -253,7 +314,7 @@ bool PathExists(const std::wstring& path) {
 }
 
 void ValidateFileName(std::wstring& file) {
-  EraseChars(file, L"\\/:*?<>|");
+  EraseChars(file, L"\\/:*?\"<>|");
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -268,22 +329,33 @@ std::wstring ExpandEnvironmentStrings(const std::wstring& path) {
 }
 
 std::wstring GetDefaultAppPath(const std::wstring& extension,
-                          const std::wstring& default_value) {
-  win::Registry reg;
-  reg.OpenKey(HKEY_CLASSES_ROOT, extension, 0, KEY_QUERY_VALUE);
+                               const std::wstring& default_value) {
+  auto query_root_value = [](const std::wstring& subkey) {
+    win::Registry reg;
+    reg.OpenKey(HKEY_CLASSES_ROOT, subkey, 0, KEY_QUERY_VALUE);
+    return reg.QueryValue(L"");
+  };
 
-  std::wstring path = reg.QueryValue(L"");
+  std::wstring path = query_root_value(extension);
+
+  if (!path.empty())
+    path = query_root_value(path + L"\\shell\\open\\command");
 
   if (!path.empty()) {
-    path += L"\\shell\\open\\command";
-    reg.OpenKey(HKEY_CLASSES_ROOT, path, 0, KEY_QUERY_VALUE);
-
-    path = reg.QueryValue(L"");
-    ReplaceString(path, L"\"", L"");
-    Trim(path, L" %1");
+    size_t position = 0;
+    bool inside_quotes = false;
+    for ( ; position < path.size(); ++position) {
+      if (path.at(position) == ' ') {
+        if (!inside_quotes)
+          break;
+      } else if (path.at(position) == '"') {
+        inside_quotes = !inside_quotes;
+      }
+    }
+    if (position != path.size())
+      path.resize(position);
+    Trim(path, L"\" ");
   }
-
-  reg.CloseKey();
 
   return path.empty() ? default_value : path;
 }
@@ -376,6 +448,9 @@ bool SaveToFile(LPCVOID data, DWORD length, const string_t& path,
 
 bool SaveToFile(const std::string& data, const std::wstring& path,
                 bool take_backup) {
+  if (data.empty())
+    return false;
+
   return SaveToFile((LPCVOID)&data.front(), data.size(), path, take_backup);
 }
 
