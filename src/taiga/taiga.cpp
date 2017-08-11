@@ -1,6 +1,6 @@
 /*
 ** Taiga
-** Copyright (C) 2010-2014, Eren Okka
+** Copyright (C) 2010-2017, Eren Okka
 ** 
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License as published by
@@ -16,6 +16,8 @@
 ** along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include <windows/win/taskbar.h>
+
 #include "base/file.h"
 #include "base/log.h"
 #include "base/process.h"
@@ -23,7 +25,6 @@
 #include "library/anime_db.h"
 #include "library/history.h"
 #include "taiga/announce.h"
-#include "taiga/api.h"
 #include "taiga/dummy.h"
 #include "taiga/resource.h"
 #include "taiga/settings.h"
@@ -33,7 +34,7 @@
 #include "ui/dialog.h"
 #include "ui/menu.h"
 #include "ui/theme.h"
-#include "win/win_taskbar.h"
+#include "ui/ui.h"
 
 taiga::App Taiga;
 
@@ -42,20 +43,17 @@ namespace taiga {
 App::App()
     : allow_multiple_instances(false),
 #ifdef _DEBUG
-      debug_mode(true),
+      debug_mode(true)
 #else
-      debug_mode(false),
+      debug_mode(false)
 #endif
-      logged_in(false),
-      current_tip_type(kTipTypeDefault),
-      play_status(kPlayStatusStopped) {
-
+{
   version.major = TAIGA_VERSION_MAJOR;
   version.minor = TAIGA_VERSION_MINOR;
   version.patch = TAIGA_VERSION_PATCH;
   version.prerelease_identifiers = TAIGA_VERSION_PRE;
   if (TAIGA_VERSION_BUILD > 0)
-    version.build_metadata = ToWstr(TAIGA_VERSION_BUILD);
+    version.build_metadata = ToStr(TAIGA_VERSION_BUILD);
 }
 
 App::~App() {
@@ -69,16 +67,18 @@ BOOL App::InitInstance() {
   // Initialize logger
   auto module_path = GetModulePath();
   auto path = AddTrailingSlash(GetPathOnly(module_path));
-  Logger.SetOutputPath(path + TAIGA_APP_NAME L".log");
-  Logger.SetSeverityLevel(debug_mode ? LevelDebug : LevelWarning);
-  LOG(LevelInformational, L"Version " + std::wstring(version) +
-                          L" (" + GetFileLastModifiedDate(module_path) + L")");
+  using monolog::Level;
+  monolog::log.enable_console_output(false);
+  monolog::log.set_path(WstrToStr(path + TAIGA_APP_NAME L".log"));
+  monolog::log.set_level(debug_mode ? Level::Debug : Level::Warning);
+  LOGI(L"Version " + StrToWstr(version.str()) +
+       L" (" + GetFileLastModifiedDate(module_path) + L")");
 
   // Check another instance
   if (!allow_multiple_instances) {
     if (CheckInstance(L"Taiga-33d5a63c-de90-432f-9a8b-f6f733dab258",
                       L"TaigaMainW")) {
-      LOG(LevelDebug, L"Another instance of Taiga is running.");
+      LOGD(L"Another instance of Taiga is running.");
       return FALSE;
     }
   }
@@ -95,12 +95,11 @@ BOOL App::InitInstance() {
 
   // Create API windows
   ::Skype.Create();
-  TaigaApi.Create();
 
   if (Settings.GetBool(kApp_Behavior_CheckForUpdates)) {
-    ui::ShowDialog(ui::kDialogUpdate);
+    ui::ShowDialog(ui::Dialog::Update);
   } else {
-    ui::ShowDialog(ui::kDialogMain);
+    ui::ShowDialog(ui::Dialog::Main);
   }
 
   return TRUE;
@@ -108,16 +107,16 @@ BOOL App::InitInstance() {
 
 void App::Uninitialize() {
   // Announce
-  if (play_status == kPlayStatusPlaying) {
-    play_status = kPlayStatusStopped;
+  if (MediaPlayers.play_status == track::recognition::PlayStatus::Playing) {
+    MediaPlayers.play_status = track::recognition::PlayStatus::Stopped;
     ::Announcer.Do(kAnnounceToHttp);
   }
   ::Announcer.Clear(kAnnounceToSkype);
 
   // Cleanup
   ConnectionManager.Shutdown();
-  Taskbar.Destroy();
-  TaskbarList.Release();
+  ui::taskbar.Destroy();
+  ui::taskbar_list.Release();
 
   // Save
   Settings.Save();
@@ -140,12 +139,12 @@ void App::ParseCommandLineArguments() {
 
     if (argument == L"-debug") {
       debug_mode = true;
-      LOG(LevelDebug, argument);
+      LOGD(argument);
     } else if (argument == L"-allowmultipleinstances") {
       allow_multiple_instances = true;
-      LOG(LevelDebug, argument);
+      LOGD(argument);
     } else {
-      LOG(LevelWarning, L"Invalid argument: " + argument);
+      LOGW(L"Invalid argument: " + argument);
     }
   }
 
@@ -156,7 +155,8 @@ void App::LoadData() {
   MediaPlayers.Load();
 
   if (Settings.Load())
-    Settings.HandleCompatibility();
+    if (Settings.HandleCompatibility())
+      Settings.Save();
 
   ui::Theme.Load();
   ui::Menus.Load();

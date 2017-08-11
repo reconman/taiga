@@ -1,6 +1,6 @@
 /*
 ** Taiga
-** Copyright (C) 2010-2014, Eren Okka
+** Copyright (C) 2010-2017, Eren Okka
 ** 
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License as published by
@@ -19,11 +19,12 @@
 #include <fstream>
 #include <shlobj.h>
 
-#include "error.h"
+#include <windows/win/error.h>
+#include <windows/win/registry.h>
+
 #include "file.h"
 #include "string.h"
 #include "time.h"
-#include "win/win_registry.h"
 
 HANDLE OpenFileForGenericRead(const std::wstring& path) {
   return ::CreateFile(GetExtendedLengthPath(path).c_str(),
@@ -82,7 +83,7 @@ std::wstring GetFileLastModifiedDate(const std::wstring& path) {
       SYSTEMTIME st_file = {0};
       result = FileTimeToSystemTime(&ft_file, &st_file);
       if (result)
-        return Date(st_file.wYear, st_file.wMonth, st_file.wDay);
+        return static_cast<std::wstring>(Date(st_file));
     }
   }
 
@@ -168,6 +169,16 @@ void ExecuteLink(const std::wstring& link) {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+bool OpenFolderAndSelectFile(const std::wstring& path) {
+  HRESULT result = S_FALSE;
+  const auto pidl = ::ILCreateFromPath(path.c_str());
+  if (pidl) {
+    result = ::SHOpenFolderAndSelectItems(pidl, 0, nullptr, 0);
+    ::ILFree(pidl);
+  }
+  return result == S_OK;
+}
+
 bool CreateFolder(const std::wstring& path) {
   auto result = SHCreateDirectoryEx(nullptr, path.c_str(), nullptr);
   return result == ERROR_SUCCESS || result == ERROR_ALREADY_EXISTS;
@@ -185,13 +196,6 @@ int DeleteFolder(std::wstring path) {
   fos.fFlags = FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT;
 
   return SHFileOperation(&fos);
-}
-
-void ConvertToLongPath(std::wstring& path) {
-  const DWORD buffer_size = 4096;
-  WCHAR buffer[buffer_size] = {0};
-  if (GetLongPathName(path.c_str(), buffer, buffer_size) > 0)
-    path = std::wstring(buffer);
 }
 
 // Extends the length limit from 260 to 32767 characters
@@ -227,59 +231,6 @@ bool IsValidDirectory(const WIN32_FIND_DATA& find_data) {
          wcscmp(find_data.cFileName, L"..") != 0;
 }
 
-bool TranslateDeviceName(std::wstring& path) {
-  if (!StartsWith(path, L"\\Device\\"))
-    return false;
-
-  size_t pos = path.find('\\', 8);
-  if (pos == std::wstring::npos)
-    return false;
-  std::wstring device_name = path.substr(0, pos);
-  path = path.substr(pos);
-
-  const int drive_letters_size = 1024;
-  WCHAR drive_letters[drive_letters_size] = {'\0'};
-  if (!GetLogicalDriveStrings(drive_letters_size - 1, drive_letters))
-    return false;
-
-  WCHAR* p = drive_letters;
-  WCHAR device[MAX_PATH];
-  WCHAR logical_drive[3] = L" :";
-  std::wstring drive_letter;
-
-  do {
-    *logical_drive = *p;
-    if (QueryDosDevice(logical_drive, device, MAX_PATH)) {
-      if (device_name == device) {
-        drive_letter = logical_drive;
-      } else {
-        const std::wstring network_prefix = L"\\Device\\LanmanRedirector";
-        std::wstring location = device;
-        if (StartsWith(location, network_prefix)) {
-          location.erase(0, network_prefix.size());
-          if (StartsWith(location, L"\\;")) {
-            pos = location.find('\\', 1);
-            if (pos != std::wstring::npos)
-              location.erase(0, pos);
-          }
-          if (StartsWith(path, location)) {
-            drive_letter = logical_drive;
-            path.erase(0, location.size());
-          }
-        }
-      }
-    }
-    while (*p++);
-  } while (drive_letter.empty() && *p);
-
-  if (drive_letter.empty())
-    drive_letter = L"\\";  // assuming that it's a remote drive
-
-  path = drive_letter + path;
-
-  return true;
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 
 bool FileExists(const std::wstring& file) {
@@ -297,7 +248,7 @@ bool FileExists(const std::wstring& file) {
 }
 
 bool FolderExists(const std::wstring& path) {
-  base::ErrorMode error_mode(SEM_FAILCRITICALERRORS);
+  win::ErrorMode error_mode(SEM_FAILCRITICALERRORS);
 
   auto file_attr = GetFileAttributes(GetExtendedLengthPath(path).c_str());
 
@@ -306,7 +257,7 @@ bool FolderExists(const std::wstring& path) {
 }
 
 bool PathExists(const std::wstring& path) {
-  base::ErrorMode error_mode(SEM_FAILCRITICALERRORS);
+  win::ErrorMode error_mode(SEM_FAILCRITICALERRORS);
 
   auto file_attr = GetFileAttributes(GetExtendedLengthPath(path).c_str());
 
@@ -358,6 +309,18 @@ std::wstring GetDefaultAppPath(const std::wstring& extension,
   }
 
   return path.empty() ? default_value : path;
+}
+
+std::wstring GetKnownFolderPath(REFKNOWNFOLDERID rfid) {
+  std::wstring output;
+
+  PWSTR path = nullptr;
+  if (SUCCEEDED(SHGetKnownFolderPath(rfid, KF_FLAG_CREATE, nullptr, &path))) {
+    output = path;
+  }
+  CoTaskMemFree(path);
+
+  return output;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

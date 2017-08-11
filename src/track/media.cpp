@@ -1,6 +1,6 @@
 /*
 ** Taiga
-** Copyright (C) 2010-2014, Eren Okka
+** Copyright (C) 2010-2017, Eren Okka
 ** 
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License as published by
@@ -17,14 +17,13 @@
 */
 
 #include <algorithm>
-#include <windows.h>
-#include <tlhelp32.h>
+
+#include <windows/win/string.h>
 
 #include "base/file.h"
-#include "base/foreach.h"
+#include "base/log.h"
 #include "base/process.h"
 #include "base/string.h"
-#include "base/xml.h"
 #include "library/anime.h"
 #include "library/anime_db.h"
 #include "library/anime_episode.h"
@@ -38,45 +37,46 @@
 #include "ui/dialog.h"
 #include "ui/ui.h"
 
-class MediaPlayers MediaPlayers;
+class track::recognition::MediaPlayers MediaPlayers;
 
-MediaPlayers::MediaPlayers()
-    : current_window_handle_(nullptr),
-      player_running_(false),
-      title_changed_(false) {
-}
+namespace track {
+namespace recognition {
 
 bool MediaPlayers::Load() {
   items.clear();
 
-  xml_document document;
-  std::wstring path = taiga::GetPath(taiga::kPathMedia);
-  xml_parse_result parse_result = document.load_file(path.c_str());
+  std::vector<anisthesia::Player> players;
+  const auto path = taiga::GetPath(taiga::Path::Media);
 
-  if (parse_result.status != pugi::status_ok) {
-    ui::DisplayErrorMessage(L"Could not read media list.", path.c_str());
-    return false;
+  std::wstring resource;
+  win::ReadStringFromResource(L"IDR_PLAYERS", L"DATA", resource);
+  if (anisthesia::ParsePlayersData(WstrToStr(resource), players)) {
+    for (const auto& player : players) {
+      items.push_back(player);
+    }
   }
 
-  // Read player list
-  xml_node mediaplayers = document.child(L"media_players");
-  foreach_xmlnode_(player, mediaplayers, L"player") {
-    items.resize(items.size() + 1);
-    items.back().name = XmlReadStrValue(player, L"name");
-    items.back().enabled = XmlReadIntValue(player, L"enabled");
-    items.back().engine = XmlReadStrValue(player, L"engine");
-    items.back().visible = XmlReadIntValue(player, L"visible");
-    items.back().mode = XmlReadIntValue(player, L"mode");
-    XmlReadChildNodes(player, items.back().classes, L"class");
-    XmlReadChildNodes(player, items.back().files, L"file");
-    XmlReadChildNodes(player, items.back().folders, L"folder");
-    for (xml_node child_node = player.child(L"edit"); child_node;
-         child_node = child_node.next_sibling(L"edit")) {
-      MediaPlayer::EditTitle edit;
-      edit.mode = child_node.attribute(L"mode").as_int();
-      edit.value = child_node.child_value();
-      items.back().edits.push_back(edit);
+  players.clear();
+  if (anisthesia::ParsePlayersFile(WstrToStr(path), players)) {
+    for (const auto& player : players) {
+      auto it = std::find_if(items.begin(), items.end(),
+          [&player](const MediaPlayer& item) {
+            return item.name == player.name;
+          });
+      if (it != items.end()) {
+        LOGD(L"Override: " + StrToWstr(player.name));
+        *it = player;
+      } else {
+        LOGD(L"Add: " + StrToWstr(player.name));
+        items.push_back(player);
+      }
     }
+  }
+
+  if (items.empty()) {
+    ui::DisplayErrorMessage(L"Could not read media players data.",
+                            path.c_str());
+    return false;
   }
 
   return true;
@@ -84,29 +84,22 @@ bool MediaPlayers::Load() {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-MediaPlayer* MediaPlayers::FindPlayer(const std::wstring& name) {
-  if (!name.empty())
-    foreach_(item, items)
-      if (item->name == name)
-        return &(*item);
-
-  return nullptr;
-}
-
 bool MediaPlayers::IsPlayerActive() const {
   if (!Settings.GetBool(taiga::kSync_Update_CheckPlayer))
     return true;
 
-  return current_window_handle_ &&
-         current_window_handle_ == GetForegroundWindow();
+  return current_result_ &&
+         current_result_->window.handle == GetForegroundWindow();
 }
 
-HWND MediaPlayers::current_window_handle() const {
-  return current_window_handle_;
+std::string MediaPlayers::current_player_name() const {
+  if (current_result_)
+    return current_result_->player.name;
+  return std::string();
 }
 
-std::wstring MediaPlayers::current_player_name() const {
-  return current_player_name_;
+std::wstring MediaPlayers::current_title() const {
+  return current_title_;
 }
 
 bool MediaPlayers::player_running() const {
@@ -115,10 +108,6 @@ bool MediaPlayers::player_running() const {
 
 void MediaPlayers::set_player_running(bool player_running) {
   player_running_ = player_running;
-}
-
-std::wstring MediaPlayers::current_title() const {
-  return current_title_;
 }
 
 bool MediaPlayers::title_changed() const {
@@ -131,185 +120,184 @@ void MediaPlayers::set_title_changed(bool title_changed) {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-MediaPlayer* MediaPlayers::CheckRunningPlayers() {
-  typedef std::pair<HWND, const MediaPlayer*> running_player_t;
-  std::vector<running_player_t> running_players;
+std::vector<anisthesia::Player> GetEnabledPlayers(
+    const std::vector<MediaPlayer>& players) {
+  std::vector<anisthesia::Player> results;
 
-  // Go through windows, starting with the highest in the Z-order
-  HWND hwnd = GetWindow(ui::GetWindowHandle(ui::kDialogMain), GW_HWNDFIRST);
-  while (hwnd != nullptr) {
-    std::wstring class_from_window;
-    std::wstring filename_from_window;
+  for (const auto& player : players) {
+    if (!player.enabled)
+      continue;
 
-    for (const auto& item : items) {
-      if (!item.enabled)
-        continue;
-      if (item.visible && !IsWindowVisible(hwnd))
-        continue;
-      switch (item.mode) {
-        default:
-          if (!Settings.GetBool(taiga::kRecognition_DetectMediaPlayers))
-            continue;
-          break;
-        case kMediaModeWebBrowser:
-          if (!Settings.GetBool(taiga::kRecognition_DetectStreamingMedia))
-            continue;
+    switch (player.type) {
+      default:
+      case anisthesia::PlayerType::Default:
+        if (!Settings.GetBool(taiga::kRecognition_DetectMediaPlayers))
+          continue;
+        break;
+      case anisthesia::PlayerType::WebBrowser:
+        if (!Settings.GetBool(taiga::kRecognition_DetectStreamingMedia))
+          continue;
+        break;
+    }
+
+    results.push_back(player);
+  }
+
+  return results;
+}
+
+bool VerifyMedia(const anisthesia::MediaInformation& media_information) {
+  const auto value = StrToWstr(media_information.value);
+
+  switch (media_information.type) {
+    case anisthesia::MediaInformationType::File:
+      if (!Meow.IsValidFileExtension(GetFileExtension(value)))
+        return false;
+      if (!Meow.IsValidAnimeType(value))
+        return false;
+      break;
+  }
+
+  return true;
+}
+
+bool GetTitleFromDefaultPlayer(const std::vector<anisthesia::Media>& media,
+                               std::wstring& title) {
+  for (const auto& item : media) {
+    for (const auto& information : item.information) {
+      auto value = StrToWstr(information.value);
+
+      switch (information.type) {
+        case anisthesia::MediaInformationType::File:
+          TrimLeft(value, L"\\?");
           break;
       }
 
-      if (class_from_window.empty())
-        class_from_window = GetWindowClass(hwnd);
-      auto class_from_item = std::find(
-          item.classes.begin(), item.classes.end(), class_from_window);
-      if (class_from_item == item.classes.end())
-        continue;
-
-      if (filename_from_window.empty())
-        filename_from_window = GetFileName(GetWindowPath(hwnd));
-      auto filename_from_item = std::find_if(
-          item.files.begin(), item.files.end(),
-          [&filename_from_window](const std::wstring& filename) {
-            return IsEqual(filename, filename_from_window);
-          });
-      if (filename_from_item == item.files.end())
-        continue;
-
-      running_players.push_back(std::make_pair(hwnd, &item));
+      title = value;
+      return true;
     }
-
-    hwnd = GetWindow(hwnd, GW_HWNDNEXT);
   }
 
-  const MediaPlayer* current_player = nullptr;
-  std::wstring current_player_name;
-  std::wstring current_title;
-  HWND current_window_handle = nullptr;
+  return false;
+}
 
-  if (!running_players.empty()) {
-    auto set_running_player = [&](running_player_t& running_player) {
-      if (!running_player.first || !running_player.second)
-        return false;
-      current_title = GetTitle(running_player.first, *running_player.second);
-      if (!current_title.empty()) {
-        current_player = running_player.second;
-        current_player_name = running_player.second->name;
-        current_window_handle = running_player.first;
+bool GetTitleFromWebBrowser(const std::vector<anisthesia::Media>& media,
+                            const std::wstring& current_title,
+                            std::wstring& current_page_title,
+                            std::wstring& title) {
+  std::wstring page_title;
+  std::wstring url;
+  std::vector<std::wstring> tabs;
+
+  for (const auto& item : media) {
+    for (const auto& information : item.information) {
+      const auto value = StrToWstr(information.value);
+      switch (information.type) {
+        case anisthesia::MediaInformationType::Tab:
+          tabs.push_back(value);
+          break;
+        case anisthesia::MediaInformationType::Title:
+          page_title = value;
+          break;
+        case anisthesia::MediaInformationType::Url:
+          url = value;
+          break;
+      }
+    }
+  }
+
+  NormalizeWebBrowserTitle(url, page_title);
+  for (auto& tab : tabs) {
+    NormalizeWebBrowserTitle(url, tab);
+  }
+
+  if (anime::IsValidId(CurrentEpisode.anime_id)) {
+    if (!page_title.empty() && page_title == current_page_title) {
+      title = current_title;
+      return true;
+    }
+    for (const auto& tab : tabs) {
+      if (!tab.empty() && tab == current_page_title) {
+        title = current_title;
         return true;
-      } else {
-        running_player.second = nullptr;
-        return false;
       }
-    };
+    }
+  }
 
+  title = page_title;
+
+  if (GetTitleFromStreamingMediaProvider(url, title)) {
+    current_page_title = page_title;
+    return true;
+  } else {
+    current_page_title.clear();
+    return false;
+  }
+}
+
+bool GetTitleFromResult(const anisthesia::win::Result& result,
+                        const std::wstring& current_title,
+                        std::wstring& current_page_title,
+                        std::wstring& title) {
+  switch (result.player.type) {
+    case anisthesia::PlayerType::Default:
+      return GetTitleFromDefaultPlayer(result.media, title);
+    case anisthesia::PlayerType::WebBrowser:
+      return GetTitleFromWebBrowser(result.media, current_title,
+                                    current_page_title, title);
+  }
+
+  return false;
+}
+
+bool MediaPlayers::CheckRunningPlayers() {
+  const auto enabled_players = GetEnabledPlayers(items);
+  std::vector<anisthesia::win::Result> results;
+
+  if (anisthesia::win::GetResults(enabled_players, VerifyMedia, results)) {
     // Stick with the previously detected window if possible
-    bool anime_identified = anime::IsValidId(CurrentEpisode.anime_id);
-    if (current_window_handle_ && anime_identified) {
-      for (auto& running_player : running_players) {
-        if (running_player.first == current_window_handle_)
-          if (set_running_player(running_player))
-            break;
-      }
+    if (current_result_ && anime::IsValidId(CurrentEpisode.anime_id)) {
+      auto it = std::find_if(results.begin(), results.end(),
+          [this](const anisthesia::win::Result& result) {
+            return result.window.handle == current_result_->window.handle;
+          });
+      if (it != results.end())
+        std::rotate(results.begin(), it, it + 1);  // Move to front
     }
-    // Otherwise, get the first one with a valid title
-    if (!current_player) {
-      for (auto& running_player : running_players) {
-        if (set_running_player(running_player))
-          break;
+
+    std::wstring title;
+
+    for (const auto& result : results) {
+      if (GetTitleFromResult(result, current_title_,
+                             current_page_title_, title)) {
+        current_result_.reset(new anisthesia::win::Result(result));
+
+        if (current_title_ != title) {
+          current_title_ = title;
+          set_title_changed(true);
+        }
+        player_running_ = true;
+
+        return true;
       }
     }
   }
 
-  if (current_player)
-    player_running_ = true;
-  current_player_name_ = current_player_name;
-  if (current_title_ != current_title) {
-    current_title_ = current_title;
-    set_title_changed(true);
-  }
-  current_window_handle_ = current_window_handle;
-
-  return const_cast<MediaPlayer*>(current_player);
+  current_result_.reset();
+  return false;
 }
 
 MediaPlayer* MediaPlayers::GetRunningPlayer() {
-  return FindPlayer(current_player_name_);
+  if (current_result_)
+    for (auto& item : items)
+      if (item.name == current_result_->player.name)
+        return &item;
+
+  return nullptr;
 }
 
-void MediaPlayers::EditTitle(std::wstring& str, const MediaPlayer& media_player) {
-  if (str.empty() || media_player.edits.empty())
-    return;
-
-  foreach_(it, media_player.edits) {
-    switch (it->mode) {
-      // Erase
-      case 1: {
-        ReplaceString(str, it->value, L"");
-        break;
-      }
-      // Cut right side
-      case 2: {
-        int pos = InStr(str, it->value, 0);
-        if (pos > -1)
-          str.resize(pos);
-        break;
-      }
-    }
-  }
-
-  TrimRight(str, L" -");
-}
-
-std::wstring MediaPlayer::GetPath() const {
-  foreach_(folder, folders) {
-    foreach_(file, files) {
-      std::wstring path = *folder + *file;
-      path = ExpandEnvironmentStrings(path);
-      if (FileExists(path))
-        return path;
-    }
-  }
-
-  return std::wstring();
-}
-
-std::wstring MediaPlayers::GetTitle(HWND hwnd, const MediaPlayer& media_player) {
-  switch (media_player.mode) {
-    // File handle
-    case kMediaModeFileHandle: {
-      std::wstring title;
-      GetTitleFromProcessHandle(hwnd, 0, title);
-      return title;
-    }
-    // Winamp API
-    case kMediaModeWinampApi:
-      return GetTitleFromWinampAPI(hwnd, false);
-    // Special message
-    case kMediaModeSpecialMessage:
-      return GetTitleFromSpecialMessage(hwnd);
-    // MPlayer
-    case kMediaModeMplayer:
-      return GetTitleFromMPlayer();
-    // Browser
-    case kMediaModeWebBrowser:
-      return GetTitleFromBrowser(hwnd, media_player);
-
-    // Window title
-    case kMediaModeWindowTitle:
-    case kMediaModeWindowTitleOnly:
-    default: {
-      std::wstring title;
-      if (media_player.mode != kMediaModeWindowTitleOnly) {
-        auto method = Settings[taiga::kRecognition_MediaPlayerDetectionMethod];
-        if (method == L"prioritize_file_handle")
-          if (GetTitleFromProcessHandle(hwnd, 0, title))
-            return title;
-      }
-      title = GetWindowTitle(hwnd);
-      EditTitle(title, media_player);
-      return title;
-    }
-  }
-}
+}  // namespace recognition
+}  // namespace track
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -357,7 +345,7 @@ void ProcessMediaPlayerTitle(const MediaPlayer& media_player) {
     bool ignore_file = false;
     static track::recognition::ParseOptions parse_options;
     parse_options.parse_path = true;
-    parse_options.streaming_media = media_player.mode == kMediaModeWebBrowser;
+    parse_options.streaming_media = media_player.type == anisthesia::PlayerType::WebBrowser;
     if (Meow.Parse(MediaPlayers.current_title(), parse_options, CurrentEpisode)) {
       bool is_inside_library_folders = true;
       if (Settings.GetBool(taiga::kSync_Update_OutOfRoot))
@@ -411,126 +399,4 @@ void ProcessMediaPlayerTitle(const MediaPlayer& media_player) {
       taiga::timers.timer(taiga::kTimerMedia)->Reset();
     }
   }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-// BS.Player
-#define BSP_CLASS L"BSPlayer"
-#define BSP_GETFILENAME 0x1010B
-
-// Winamp
-#define IPC_ISPLAYING        104
-#define IPC_GETLISTPOS       125
-#define IPC_GETPLAYLISTFILE  211
-#define IPC_GETPLAYLISTFILEW 214
-
-bool MediaPlayers::GetTitleFromProcessHandle(HWND hwnd, ULONG process_id,
-                                             std::wstring& title) {
-  if (hwnd != nullptr && process_id == 0)
-    GetWindowThreadProcessId(hwnd, &process_id);
-
-  std::vector<std::wstring> process_files;
-
-  if (!GetProcessFiles(process_id, process_files))
-    return false;
-
-  for (auto path : process_files) {
-    if (Meow.IsValidFileExtension(GetFileExtension(path))) {
-      TranslateDeviceName(path);
-      ConvertToLongPath(path);
-      if (Meow.IsValidAnimeType(path)) {
-        title = path;
-        break;
-      }
-    }
-  }
-
-  return true;
-}
-
-std::wstring MediaPlayers::GetTitleFromWinampAPI(HWND hwnd, bool use_unicode) {
-  std::wstring title;
-
-  if (IsWindow(hwnd)) {
-    if (SendMessage(hwnd, WM_USER, 0, IPC_ISPLAYING)) {
-      int list_index = SendMessage(hwnd, WM_USER, 0, IPC_GETLISTPOS);
-      int base_address = SendMessage(hwnd, WM_USER, list_index,
-          use_unicode ? IPC_GETPLAYLISTFILEW : IPC_GETPLAYLISTFILE);
-      if (base_address) {
-        DWORD process_id;
-        GetWindowThreadProcessId(hwnd, &process_id);
-        HANDLE hwnd_winamp = OpenProcess(PROCESS_VM_READ, FALSE, process_id);
-        if (hwnd_winamp) {
-          if (use_unicode) {
-            wchar_t file_name[MAX_PATH];
-            ReadProcessMemory(hwnd_winamp,
-                              reinterpret_cast<LPCVOID>(base_address),
-                              file_name, MAX_PATH, NULL);
-            title = file_name;
-          } else {
-            char file_name[MAX_PATH];
-            ReadProcessMemory(hwnd_winamp,
-                              reinterpret_cast<LPCVOID>(base_address),
-                              file_name, MAX_PATH, NULL);
-            title = StrToWstr(file_name);
-          }
-          CloseHandle(hwnd_winamp);
-        }
-      }
-    }
-  }
-
-  if (!Meow.IsValidFileExtension(GetFileExtension(title)))
-    title.clear();
-
-  return title;
-}
-
-std::wstring MediaPlayers::GetTitleFromSpecialMessage(HWND hwnd) {
-  std::wstring title;
-
-  const std::wstring class_name = GetWindowClass(hwnd);
-
-  // BS.Player
-  if (class_name == BSP_CLASS) {
-    if (IsWindow(hwnd)) {
-      COPYDATASTRUCT cds;
-      char file_name[MAX_PATH];
-      void* data = &file_name;
-      cds.dwData = BSP_GETFILENAME;
-      cds.lpData = &data;
-      cds.cbData = 4;
-      SendMessage(hwnd, WM_COPYDATA,
-                  reinterpret_cast<WPARAM>(ui::GetWindowHandle(ui::kDialogMain)),
-                  reinterpret_cast<LPARAM>(&cds));
-      title = StrToWstr(file_name);
-    }
-  }
-
-  if (!Meow.IsValidFileExtension(GetFileExtension(title)))
-    title.clear();
-
-  return title;
-}
-
-std::wstring MediaPlayers::GetTitleFromMPlayer() {
-  std::wstring title;
-
-  HANDLE hProcessSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-  if (hProcessSnap != INVALID_HANDLE_VALUE) {
-    PROCESSENTRY32 pe32;
-    pe32.dwSize = sizeof(PROCESSENTRY32);
-    if (Process32First(hProcessSnap, &pe32)) {
-      do {
-        if (IsEqual(pe32.szExeFile, L"mplayer.exe")) {
-          if (GetTitleFromProcessHandle(NULL, pe32.th32ProcessID, title))
-            break;
-        }
-      } while (Process32Next(hProcessSnap, &pe32));
-    }
-    CloseHandle(hProcessSnap);
-  }
-
-  return title;
 }

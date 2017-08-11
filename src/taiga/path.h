@@ -1,6 +1,6 @@
 /*
 ** Taiga
-** Copyright (C) 2010-2014, Eren Okka
+** Copyright (C) 2010-2017, Eren Okka
 ** 
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License as published by
@@ -16,35 +16,38 @@
 ** along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef TAIGA_TAIGA_PATH_H
-#define TAIGA_TAIGA_PATH_H
+#pragma once
 
 #include <string>
 
+namespace sync {
+enum ServiceId;
+}
+
 namespace taiga {
 
-enum PathType {
-  kPathData,
-  kPathDatabase,
-  kPathDatabaseAnime,
-  kPathDatabaseAnimeRelations,
-  kPathDatabaseImage,
-  kPathDatabaseSeason,
-  kPathFeed,
-  kPathFeedHistory,
-  kPathMedia,
-  kPathSettings,
-  kPathTest,
-  kPathTestRecognition,
-  kPathTheme,
-  kPathThemeCurrent,
-  kPathUser,
-  kPathUserHistory,
-  kPathUserLibrary
+enum class Path {
+  Data,
+  Database,
+  DatabaseAnime,
+  DatabaseAnimeRelations,
+  DatabaseImage,
+  DatabaseSeason,
+  Feed,
+  FeedHistory,
+  Media,
+  Settings,
+  Test,
+  TestRecognition,
+  Theme,
+  ThemeCurrent,
+  User,
+  UserHistory,
+  UserLibrary
 };
 
-std::wstring GetPath(PathType type);
+std::wstring GetUserDirectoryName(const sync::ServiceId service_id);
+std::wstring GetUserDirectoryName();
+std::wstring GetPath(Path path);
 
 }  // namespace taiga
-
-#endif  // TAIGA_TAIGA_PATH_H

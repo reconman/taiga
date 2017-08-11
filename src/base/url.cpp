@@ -1,6 +1,6 @@
 /*
 ** Taiga
-** Copyright (C) 2010-2014, Eren Okka
+** Copyright (C) 2010-2017, Eren Okka
 ** 
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License as published by
@@ -18,16 +18,15 @@
 
 #include <vector>
 
-#include "foreach.h"
 #include "string.h"
 #include "url.h"
 
 Url::Url()
-    : protocol(base::http::kHttp), port(0) {
+    : protocol(base::http::Protocol::Http), port(0) {
 }
 
 Url::Url(const std::wstring& url)
-    : protocol(base::http::kHttp), port(0) {
+    : protocol(base::http::Protocol::Http), port(0) {
   Crack(url);
 }
 
@@ -51,7 +50,7 @@ void Url::operator=(const std::wstring& url) {
 ////////////////////////////////////////////////////////////////////////////////
 
 void Url::Clear() {
-  protocol = base::http::kHttp;
+  protocol = base::http::Protocol::Http;
   host.clear();
   port = 0;
   path.clear();
@@ -63,12 +62,12 @@ std::wstring Url::Build() const {
   std::wstring url;
 
   switch (protocol) {
-    case base::http::kHttp:
-    case base::http::kRelative:
+    case base::http::Protocol::Http:
+    case base::http::Protocol::Relative:
     default:
       url += L"http";
       break;
-    case base::http::kHttps:
+    case base::http::Protocol::Https:
       url += L"https";
       break;
   }
@@ -93,18 +92,20 @@ std::wstring Url::Build() const {
 void Url::Crack(std::wstring url) {
   Clear();
 
+  Trim(url, L"\t\n\r ");
+
   // Get protocol
   size_t i = url.find(L"://", 0);
   if (i != std::wstring::npos) {
     std::wstring scheme = url.substr(0, i);
     url = url.substr(i + 3);
     if (IsEqual(scheme, L"https"))
-      protocol = base::http::kHttps;
+      protocol = base::http::Protocol::Https;
   } else {
     i = url.find(L"//", 0);
     if (i == 0) {
       url = url.substr(2);
-      protocol = base::http::kRelative;
+      protocol = base::http::Protocol::Relative;
     }
   }
 
@@ -136,12 +137,14 @@ void Url::Crack(std::wstring url) {
     path = path.substr(0, i);
     std::vector<std::wstring> parameters;
     Split(query_string, L"&", parameters);
-    foreach_(it, parameters) {
-      i = it->find(L"=", 0);
+    for (const auto& parameter : parameters) {
+      i = parameter.find(L"=", 0);
       if (i != std::wstring::npos) {
-        std::wstring name = it->substr(0, i);
-        std::wstring value = DecodeUrl(it->substr(i + 1));
+        std::wstring name = DecodeUrl(parameter.substr(0, i));
+        std::wstring value = DecodeUrl(parameter.substr(i + 1));
         query.insert(std::make_pair(name, value));
+      } else {
+        query.insert(std::make_pair(parameter, L""));
       }
     }
   }
@@ -155,7 +158,9 @@ std::wstring BuildUrlParameters(const query_t& parameters) {
   for (const auto& parameter : parameters) {
     if (!output.empty())
       output += L"&";
-    output += parameter.first + L"=" + EncodeUrl(parameter.second, false);
+    output += parameter.first;
+    if (!parameter.second.empty())
+      output += L"=" + EncodeUrl(parameter.second, false);
   }
 
   return output;

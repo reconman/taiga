@@ -1,6 +1,6 @@
 /*
 ** Taiga
-** Copyright (C) 2010-2014, Eren Okka
+** Copyright (C) 2010-2017, Eren Okka
 ** 
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License as published by
@@ -18,13 +18,13 @@
 
 #include <algorithm>
 
-#include "base/foreach.h"
+#include <windows/win/gdi.h>
+
 #include "base/string.h"
 #include "library/anime_db.h"
 #include "library/anime_util.h"
 #include "taiga/resource.h"
 #include "ui/dlg/dlg_feed_condition.h"
-#include "win/win_gdi.h"
 
 namespace ui {
 
@@ -96,6 +96,7 @@ INT_PTR FeedConditionDialog::DialogProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
     case WM_CTLCOLORSTATIC: {
       win::Dc dc = reinterpret_cast<HDC>(wParam);
       dc.SetBkMode(TRANSPARENT);
+      dc.SetTextColor(::GetSysColor(COLOR_WINDOWTEXT));
       dc.DetachDc();
       return reinterpret_cast<INT_PTR>(::GetSysColorBrush(COLOR_WINDOW));
     }
@@ -266,8 +267,8 @@ void FeedConditionDialog::ChooseElement(int element_index) {
         });
       if (element_index == kFeedFilterElement_Meta_Id)
         value_combo_.AddString(L"(Unknown)");
-      foreach_(it, title_list)
-        value_combo_.AddItem(it->second.c_str(), it->first);
+      for (const auto& pair : title_list)
+        value_combo_.AddItem(pair.second.c_str(), pair.first);
       break;
     }
     case kFeedFilterElement_Meta_DateStart:

@@ -1,6 +1,6 @@
 /*
 ** Taiga
-** Copyright (C) 2010-2014, Eren Okka
+** Copyright (C) 2010-2017, Eren Okka
 ** 
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License as published by
@@ -16,13 +16,14 @@
 ** along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef TAIGA_BASE_FILE_H
-#define TAIGA_BASE_FILE_H
+#pragma once
 
 #include <functional>
 #include <string>
 #include <vector>
+
 #include <windows.h>
+#include <shlobj.h>
 
 #include "types.h"
 
@@ -35,16 +36,15 @@ bool Execute(const std::wstring& path, const std::wstring& parameters = L"", int
 bool ExecuteFile(const std::wstring& path, std::wstring parameters = L"");
 void ExecuteLink(const std::wstring& link);
 
+bool OpenFolderAndSelectFile(const std::wstring& path);
 bool CreateFolder(const std::wstring& path);
 int DeleteFolder(std::wstring path);
 
-void ConvertToLongPath(std::wstring& path);
 std::wstring GetExtendedLengthPath(const std::wstring& path);
 bool IsDirectory(const WIN32_FIND_DATA& find_data);
 bool IsHiddenFile(const WIN32_FIND_DATA& find_data);
 bool IsSystemFile(const WIN32_FIND_DATA& find_data);
 bool IsValidDirectory(const WIN32_FIND_DATA& find_data);
-bool TranslateDeviceName(std::wstring& path);
 
 bool FileExists(const std::wstring& file);
 bool FolderExists(const std::wstring& folder);
@@ -53,6 +53,7 @@ void ValidateFileName(std::wstring& path);
 
 std::wstring ExpandEnvironmentStrings(const std::wstring& path);
 std::wstring GetDefaultAppPath(const std::wstring& extension, const std::wstring& default_value);
+std::wstring GetKnownFolderPath(REFKNOWNFOLDERID rfid);
 
 unsigned int PopulateFiles(std::vector<std::wstring>& file_list, const std::wstring& path, const std::wstring& extension = L"", bool recursive = false, bool trim_extension = false);
 int PopulateFolders(std::vector<std::wstring>& folder_list, const std::wstring& path);
@@ -87,5 +88,3 @@ protected:
   bool skip_files_;
   bool skip_subdirectories_;
 };
-
-#endif  // TAIGA_BASE_FILE_H

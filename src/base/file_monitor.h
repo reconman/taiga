@@ -1,6 +1,6 @@
 /*
 ** Taiga
-** Copyright (C) 2010-2014, Eren Okka
+** Copyright (C) 2010-2017, Eren Okka
 ** 
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License as published by
@@ -16,23 +16,22 @@
 ** along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef TAIGA_BASE_FILE_MONITOR_H
-#define TAIGA_BASE_FILE_MONITOR_H
+#pragma once
 
 #include <windows.h>
 #include <string>
 #include <vector>
 
-#include "win/win_thread.h"
+#include <windows/win/thread.h>
 
 #define WM_MONITORCALLBACK (WM_APP + 0x32)
 
 class DirectoryChangeNotification {
 public:
-  enum Type {
-    kTypeDirectory,
-    kTypeFile,
-    kTypeUnknown
+  enum class Type {
+    Directory,
+    File,
+    Unknown,
   };
 
   DirectoryChangeNotification(DWORD action,
@@ -49,9 +48,9 @@ class DirectoryChangeEntry {
 public:
   friend class DirectoryMonitor;
 
-  enum State {
-    kStateStopped,
-    kStateActive
+  enum class State {
+    Stopped,
+    Active,
   };
 
   DirectoryChangeEntry(HANDLE directory_handle, const std::wstring& path);
@@ -108,5 +107,3 @@ private:
   HANDLE completion_port_;
   HWND window_handle_;
 };
-
-#endif  // TAIGA_BASE_FILE_MONITOR_H

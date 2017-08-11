@@ -1,6 +1,6 @@
 /*
 ** Taiga
-** Copyright (C) 2010-2014, Eren Okka
+** Copyright (C) 2010-2017, Eren Okka
 ** 
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License as published by
@@ -16,7 +16,6 @@
 ** along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "base/foreach.h"
 #include "base/log.h"
 #include "base/string.h"
 #include "library/anime.h"
@@ -40,6 +39,7 @@
 namespace taiga {
 
 Timer timer_anime_list(kTimerAnimeList, 60);    //  1 minute
+Timer timer_detection(kTimerDetection, 3);      //  3 seconds
 Timer timer_history(kTimerHistory, 5 * 60);     //  5 minutes
 Timer timer_library(kTimerLibrary, 30 * 60);    // 30 minutes
 Timer timer_media(kTimerMedia, 2 * 60, false);  //  2 minutes
@@ -56,12 +56,16 @@ Timer::Timer(unsigned int id, int interval, bool repeat)
 }
 
 void Timer::OnTimeout() {
-  LOG(LevelDebug, L"ID: " + ToWstr(id()) + L", "
-                  L"Interval: " + ToWstr(this->interval()));
+  LOGD(L"ID: " + ToWstr(id()) + L", "
+       L"Interval: " + ToWstr(this->interval()));
 
   switch (id()) {
     case kTimerAnimeList:
       ui::DlgAnimeList.listview.RefreshLastUpdateColumn();
+      break;
+
+    case kTimerDetection:
+      MediaPlayers.CheckRunningPlayers();
       break;
 
     case kTimerHistory:
@@ -93,7 +97,7 @@ void Timer::OnTimeout() {
       break;
 
     case kTimerTorrents:
-      Aggregator.CheckFeed(kFeedCategoryLink,
+      Aggregator.CheckFeed(FeedCategory::Link,
                            Settings[taiga::kTorrent_Discovery_Source], true);
       break;
   }
@@ -110,6 +114,7 @@ void TimerManager::Initialize() {
 
   // Attach timers to the manager
   InsertTimer(&timer_anime_list);
+  InsertTimer(&timer_detection);
   InsertTimer(&timer_history);
   InsertTimer(&timer_library);
   InsertTimer(&timer_media);
@@ -138,6 +143,9 @@ void TimerManager::UpdateEnabledState() {
 }
 
 void TimerManager::UpdateIntervalsFromSettings() {
+  timer_detection.set_interval(
+      std::max(1, Settings.GetInt(taiga::kRecognition_DetectionInterval)));
+
   timer_media.set_interval(
       Settings.GetInt(taiga::kSync_Update_Delay));
 
@@ -159,13 +167,12 @@ void TimerManager::UpdateUi() {
 }
 
 void TimerManager::OnTick() {
-  MediaPlayers.CheckRunningPlayers();
   Stats.uptime++;
 
   UpdateEnabledState();
 
-  foreach_(it, timers_)
-    it->second->Tick();
+  for (const auto& pair : timers_)
+    pair.second->Tick();
 
   UpdateUi();
 }

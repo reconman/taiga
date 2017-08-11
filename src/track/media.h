@@ -1,6 +1,6 @@
 /*
 ** Taiga
-** Copyright (C) 2010-2014, Eren Okka
+** Copyright (C) 2010-2017, Eren Okka
 ** 
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License as published by
@@ -16,98 +16,71 @@
 ** along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef TAIGA_TRACK_MEDIA_H
-#define TAIGA_TRACK_MEDIA_H
+#pragma once
 
+#include <memory>
 #include <string>
 #include <vector>
 
-#include "win/win_accessibility.h"
+#include <anisthesia/src/player.h>
+#include <anisthesia/src/win/platform.h>
 
-enum MediaPlayerModes {
-  kMediaModeWindowTitle,
-  kMediaModeFileHandle,
-  kMediaModeWinampApi,
-  kMediaModeSpecialMessage,
-  kMediaModeMplayer,
-  kMediaModeWebBrowser,
-  kMediaModeWindowTitleOnly,
+namespace track {
+namespace recognition {
+
+enum class PlayStatus {
+  Stopped,
+  Playing,
+  Updated,
 };
 
-class MediaPlayer {
+class MediaPlayer : public anisthesia::Player {
 public:
-  std::wstring GetPath() const;
+  MediaPlayer(const anisthesia::Player& player)
+      : anisthesia::Player(player) {}
 
-  std::wstring name;
-  BOOL enabled;
-  BOOL visible;
-  int mode;
-  std::vector<std::wstring> classes;
-  std::vector<std::wstring> files;
-  std::vector<std::wstring> folders;
-  std::wstring engine;
-
-  struct EditTitle {
-    int mode;
-    std::wstring value;
-  };
-  std::vector<EditTitle> edits;
+  bool enabled = true;
 };
 
 class MediaPlayers {
 public:
-  MediaPlayers();
-  ~MediaPlayers() {}
-
   bool Load();
 
-  MediaPlayer* FindPlayer(const std::wstring& name);
   bool IsPlayerActive() const;
 
-  HWND current_window_handle() const;
-  std::wstring current_player_name() const;
+  std::string current_player_name() const;
+  std::wstring current_title() const;
+
   bool player_running() const;
   void set_player_running(bool player_running);
-  std::wstring current_title() const;
+
   bool title_changed() const;
   void set_title_changed(bool title_changed);
 
-  MediaPlayer* CheckRunningPlayers();
+  bool CheckRunningPlayers();
   MediaPlayer* GetRunningPlayer();
-
-  void EditTitle(std::wstring& str, const MediaPlayer& media_player);
-  std::wstring GetTitle(HWND hwnd, const MediaPlayer& media_player);
-
-  bool GetTitleFromProcessHandle(HWND hwnd, ULONG process_id, std::wstring& title);
-  std::wstring GetTitleFromWinampAPI(HWND hwnd, bool use_unicode);
-  std::wstring GetTitleFromSpecialMessage(HWND hwnd);
-  std::wstring GetTitleFromMPlayer();
-  std::wstring GetTitleFromBrowser(HWND hwnd, const MediaPlayer& media_player);
-  std::wstring GetTitleFromStreamingMediaProvider(const std::wstring& url, std::wstring& title);
 
 public:
   std::vector<MediaPlayer> items;
-
-  class BrowserAccessibleObject : public win::AccessibleObject {
-  public:
-    bool AllowChildTraverse(win::AccessibleChild& child, LPARAM param = 0L);
-  } acc_obj;
+  PlayStatus play_status = PlayStatus::Stopped;
 
 private:
-  std::wstring FromActiveAccessibility(HWND hwnd, int web_engine, std::wstring& title);
-  std::wstring FromAutomationApi(HWND hwnd, int web_engine, std::wstring& title);
-
-  HWND current_window_handle_;
-  std::wstring current_player_name_;
-  bool player_running_;
-
+  std::unique_ptr<anisthesia::win::Result> current_result_;
   std::wstring current_title_;
-  bool title_changed_;
+  std::wstring current_page_title_;
+  bool player_running_ = false;
+  bool title_changed_ = false;
 };
 
-extern MediaPlayers MediaPlayers;
+bool GetTitleFromStreamingMediaProvider(const std::wstring& url, std::wstring& title);
+void NormalizeWebBrowserTitle(const std::wstring& url, std::wstring& title);
+
+}  // namespace recognition
+}  // namespace track
+
+using track::recognition::MediaPlayer;
 
 void ProcessMediaPlayerStatus(const MediaPlayer* media_player);
 void ProcessMediaPlayerTitle(const MediaPlayer& media_player);
 
-#endif  // TAIGA_TRACK_MEDIA_H
+extern track::recognition::MediaPlayers MediaPlayers;

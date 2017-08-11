@@ -1,6 +1,6 @@
 /*
 ** Taiga
-** Copyright (C) 2010-2014, Eren Okka
+** Copyright (C) 2010-2017, Eren Okka
 ** 
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License as published by
@@ -16,10 +16,12 @@
 ** along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include <windows/win/registry.h>
+#include <windows/win/task_dialog.h>
+
 #include "base/base64.h"
 #include "base/crypto.h"
 #include "base/file.h"
-#include "base/foreach.h"
 #include "base/log.h"
 #include "base/string.h"
 #include "base/xml.h"
@@ -29,6 +31,7 @@
 #include "library/history.h"
 #include "library/resource.h"
 #include "sync/manager.h"
+#include "sync/sync.h"
 #include "taiga/path.h"
 #include "taiga/settings.h"
 #include "taiga/stats.h"
@@ -42,15 +45,13 @@
 #include "ui/menu.h"
 #include "ui/theme.h"
 #include "ui/ui.h"
-#include "win/win_registry.h"
-#include "win/win_taskdialog.h"
 
 taiga::AppSettings Settings;
 
 namespace taiga {
 
 const std::wstring kDefaultExternalLinks =
-    L"Hummingbird Tools|https://hb.wopian.me\r\n"
+    L"Hibari|https://hb.wopian.me\r\n"
     L"MALgraph|http://graph.anime.plus\r\n"
     L"-\r\n"
     L"AniChart|http://anichart.net/airing\r\n"
@@ -77,8 +78,8 @@ const std::wstring kDefaultFormatSkype =
     L"$if(%episode%, #%episode%$if(%total%,/%total%))";
 const std::wstring kDefaultFormatTwitter =
     L"$ifequal(%episode%,%total%,Just completed: %title%"
-    L"$if(%score%, (Score: %score%)) "
-    L"%animeurl%)";
+    L"$if(%score%, (Score: %score%)) %animeurl%,"
+    L"$ifequal(%episode%,1,Started watching: %title% %animeurl%))";
 const std::wstring kDefaultFormatBalloon =
     L"$if(%title%,%title%)\\n"
     L"$if(%episode%,Episode %episode%$if(%total%,/%total%) )"
@@ -87,7 +88,7 @@ const std::wstring kDefaultFormatBalloon =
 const std::wstring kDefaultTorrentAppPath =
     L"C:\\Program Files\\uTorrent\\uTorrent.exe";
 const std::wstring kDefaultTorrentSearch =
-    L"https://www.nyaa.se/?page=rss&cats=1_37&filter=2&term=%title%";
+    L"https://nyaa.si/rss?c=1_2&f=0&q=%title%";
 const std::wstring kDefaultTorrentSource =
     L"https://tokyotosho.info/rss.php?filter=1,11&zwnj=0";
 
@@ -103,9 +104,7 @@ void AppSettings::InitializeMap() {
   #define INITKEY(name, def, path) InitializeKey(name, def, path);
 
   // Meta
-  INITKEY(kMeta_Version_Major, nullptr, L"meta/version/major");
-  INITKEY(kMeta_Version_Minor, nullptr, L"meta/version/minor");
-  INITKEY(kMeta_Version_Revision, nullptr, L"meta/version/revision");
+  INITKEY(kMeta_Version, nullptr, L"meta/version");
 
   // Services
   INITKEY(kSync_ActiveService, L"myanimelist", L"account/update/activeservice");
@@ -113,9 +112,10 @@ void AppSettings::InitializeMap() {
   INITKEY(kSync_Service_Mal_Username, nullptr, L"account/myanimelist/username");
   INITKEY(kSync_Service_Mal_Password, nullptr, L"account/myanimelist/password");
   INITKEY(kSync_Service_Mal_UseHttps, L"true", L"account/myanimelist/https");
-  INITKEY(kSync_Service_Hummingbird_Username, nullptr, L"account/hummingbird/username");
-  INITKEY(kSync_Service_Hummingbird_Password, nullptr, L"account/hummingbird/password");
-  INITKEY(kSync_Service_Hummingbird_UseHttps, L"true", L"account/hummingbird/https");
+  INITKEY(kSync_Service_Kitsu_Username, nullptr, L"account/kitsu/username");
+  INITKEY(kSync_Service_Kitsu_Password, nullptr, L"account/kitsu/password");
+  INITKEY(kSync_Service_Kitsu_PartialLibrary, L"true", L"account/kitsu/partiallibrary");
+  INITKEY(kSync_Service_Kitsu_UseHttps, L"true", L"account/kitsu/https");
 
   // Library
   INITKEY(kLibrary_FileSizeThreshold, ToWstr(kDefaultFileSizeThreshold).c_str(), L"anime/folders/scan/minfilesize");
@@ -146,8 +146,7 @@ void AppSettings::InitializeMap() {
   INITKEY(kApp_Interface_ExternalLinks, kDefaultExternalLinks.c_str(), L"program/general/externallinks");
 
   // Recognition
-  INITKEY(kRecognition_BrowserDetectionMethod, L"ui_automation", L"recognition/streaming/browserdetectionmethod");
-  INITKEY(kRecognition_MediaPlayerDetectionMethod, L"prioritize_file_handle", L"recognition/mediaplayers/detectionmethod");
+  INITKEY(kRecognition_DetectionInterval, L"3", L"recognition/general/detectioninterval");
   INITKEY(kRecognition_DetectMediaPlayers, L"true", L"recognition/mediaplayers/enabled");
   INITKEY(kRecognition_DetectStreamingMedia, nullptr, L"recognition/streaming/enabled");
   INITKEY(kRecognition_IgnoredStrings, nullptr, L"recognition/anitomy/ignored_strings");
@@ -168,9 +167,11 @@ void AppSettings::InitializeMap() {
   INITKEY(kStream_Ann, L"true", L"recognition/streaming/providers/ann");
   INITKEY(kStream_Crunchyroll, L"true", L"recognition/streaming/providers/crunchyroll");
   INITKEY(kStream_Daisuki, L"true", L"recognition/streaming/providers/daisuki");
+  INITKEY(kStream_Hidive, L"true", L"recognition/streaming/providers/hidive");
   INITKEY(kStream_Plex, L"true", L"recognition/streaming/providers/plex");
   INITKEY(kStream_Veoh, L"true", L"recognition/streaming/providers/veoh");
   INITKEY(kStream_Viz, L"true", L"recognition/streaming/providers/viz");
+  INITKEY(kStream_Vrv, L"true", L"recognition/streaming/providers/vrv");
   INITKEY(kStream_Wakanim, L"true", L"recognition/streaming/providers/wakanim");
   INITKEY(kStream_Youtube, L"true", L"recognition/streaming/providers/youtube");
 
@@ -182,7 +183,7 @@ void AppSettings::InitializeMap() {
   INITKEY(kShare_Mirc_MultiServer, nullptr, L"announce/mirc/multiserver");
   INITKEY(kShare_Mirc_UseMeAction, L"true", L"announce/mirc/useaction");
   INITKEY(kShare_Mirc_Mode, L"1", L"announce/mirc/mode");
-  INITKEY(kShare_Mirc_Channels, L"#hummingbird, #myanimelist, #taiga", L"announce/mirc/channels");
+  INITKEY(kShare_Mirc_Channels, L"#kitsu, #myanimelist, #taiga", L"announce/mirc/channels");
   INITKEY(kShare_Mirc_Format, kDefaultFormatMirc.c_str(), L"announce/mirc/format");
   INITKEY(kShare_Mirc_Service, L"mIRC", L"announce/mirc/service");
   INITKEY(kShare_Skype_Enabled, nullptr, L"announce/skype/enabled");
@@ -208,6 +209,7 @@ void AppSettings::InitializeMap() {
   INITKEY(kTorrent_Download_CreateSubfolder, nullptr, L"rss/torrent/options/autocreatefolder");
   INITKEY(kTorrent_Download_SortBy, L"episode_number", L"rss/torrent/options/downloadsortby");
   INITKEY(kTorrent_Download_SortOrder, L"ascending", L"rss/torrent/options/downloadsortorder");
+  INITKEY(kTorrent_Download_UseMagnet, L"false", L"rss/torrent/options/downloadusemagnet");
   INITKEY(kTorrent_Filter_Enabled, L"true", L"rss/torrent/filter/enabled");
   INITKEY(kTorrent_Filter_ArchiveMaxCount, L"1000", L"rss/torrent/filter/archive_maxcount");
 
@@ -235,23 +237,18 @@ void AppSettings::InitializeMap() {
 
 bool AppSettings::Load() {
   xml_document document;
-  std::wstring path = taiga::GetPath(taiga::kPathSettings);
+  std::wstring path = taiga::GetPath(taiga::Path::Settings);
   xml_parse_result result = document.load_file(path.c_str());
 
   xml_node settings = document.child(L"settings");
 
   InitializeMap();
 
-  for (enum_t i = kAppSettingNameFirst; i < kAppSettingNameLast; ++i)
+  for (enum_t i = kAppSettingNameFirst; i < kAppSettingNameLast; ++i) {
     ReadValue(settings, i);
+  }
 
-  // Meta
-  if (GetWstr(kMeta_Version_Major).empty())
-    Set(kMeta_Version_Major, ToWstr(Taiga.version.major));
-  if (GetWstr(kMeta_Version_Minor).empty())
-    Set(kMeta_Version_Minor, ToWstr(Taiga.version.minor));
-  if (GetWstr(kMeta_Version_Revision).empty())
-    Set(kMeta_Version_Revision, ToWstr(Taiga.version.patch));
+  ReadLegacyValues(settings);
 
   // Folders
   library_folders.clear();
@@ -276,9 +273,9 @@ bool AppSettings::Load() {
   foreach_xmlnode_(player, node_players, L"player") {
     std::wstring name = player.attribute(L"name").value();
     bool enabled = player.attribute(L"enabled").as_bool();
-    foreach_(it, MediaPlayers.items) {
-      if (it->name == name) {
-        it->enabled = enabled;
+    for (auto& media_player : MediaPlayers.items) {
+      if (media_player.name == WstrToStr(name)) {
+        media_player.enabled = enabled;
         break;
       }
     }
@@ -313,7 +310,7 @@ bool AppSettings::Load() {
   Aggregator.filter_manager.Import(node_filter, Aggregator.filter_manager.filters);
   if (Aggregator.filter_manager.filters.empty())
     Aggregator.filter_manager.AddPresets();
-  auto feed = Aggregator.GetFeed(kFeedCategoryLink);
+  auto feed = Aggregator.GetFeed(FeedCategory::Link);
   if (feed)
     feed->link = GetWstr(kTorrent_Discovery_Source);
   Aggregator.LoadArchive();
@@ -328,24 +325,23 @@ bool AppSettings::Save() {
   xml_node settings = document.append_child(L"settings");
 
   // Meta
-  Set(kMeta_Version_Major, ToWstr(Taiga.version.major));
-  Set(kMeta_Version_Minor, ToWstr(Taiga.version.minor));
-  Set(kMeta_Version_Revision, ToWstr(Taiga.version.patch));
+  Set(kMeta_Version, StrToWstr(Taiga.version.str()));
 
-  for (enum_t i = kAppSettingNameFirst; i < kAppSettingNameLast; ++i)
+  for (enum_t i = kAppSettingNameFirst; i < kAppSettingNameLast; ++i) {
     WriteValue(settings, i);
+  }
 
   // Library folders
   xml_node folders = settings.child(L"anime").child(L"folders");
-  foreach_(it, library_folders) {
+  for (const auto& folder : library_folders) {
     xml_node root = folders.append_child(L"root");
-    root.append_attribute(L"folder") = it->c_str();
+    root.append_attribute(L"folder") = folder.c_str();
   }
 
   // Anime items
   xml_node items = settings.child(L"anime").append_child(L"items");
-  foreach_(it, AnimeDatabase.items) {
-    anime::Item& anime_item = it->second;
+  for (const auto& pair : AnimeDatabase.items) {
+    const auto& anime_item = pair.second;
     if (anime_item.GetFolder().empty() &&
         !anime_item.UserSynonymsAvailable() &&
         !anime_item.GetUseAlternative())
@@ -362,10 +358,10 @@ bool AppSettings::Save() {
 
   // Media players
   xml_node mediaplayers = settings.child(L"recognition").child(L"mediaplayers");
-  foreach_(it, MediaPlayers.items) {
+  for (const auto& media_player : MediaPlayers.items) {
     xml_node player = mediaplayers.append_child(L"player");
-    player.append_attribute(L"name") = it->name.c_str();
-    player.append_attribute(L"enabled") = it->enabled;
+    player.append_attribute(L"name") = StrToWstr(media_player.name).c_str();
+    player.append_attribute(L"enabled") = media_player.enabled;
   }
 
   // Anime list columns
@@ -396,7 +392,7 @@ bool AppSettings::Save() {
   }
   reg.CloseKey();
 
-  std::wstring path = taiga::GetPath(taiga::kPathSettings);
+  std::wstring path = taiga::GetPath(taiga::Path::Settings);
   return XmlWriteDocumentToFile(document, path);
 }
 
@@ -444,7 +440,7 @@ void AppSettings::ApplyChanges(const std::wstring& previous_service,
     History.Load();
     CurrentEpisode.Set(anime::ID_UNKNOWN);
     Stats.CalculateAll();
-    Taiga.logged_in = false;
+    sync::InvalidateUserAuthentication();
     ui::OnSettingsUserChange();
     ui::OnSettingsServiceChange();
   } else {
@@ -460,96 +456,9 @@ void AppSettings::ApplyChanges(const std::wstring& previous_service,
   timers.UpdateIntervalsFromSettings();
 }
 
-void AppSettings::HandleCompatibility() {
-  const base::SemanticVersion version(
-      GetInt(kMeta_Version_Major),
-      GetInt(kMeta_Version_Minor),
-      GetInt(kMeta_Version_Revision));
-
-  if (version == Taiga.version)
-    return;
-
-  LOG(LevelWarning, L"Upgraded from v" + std::wstring(version) +
-                    L" to v" + std::wstring(Taiga.version));
-
-  if (version <= base::SemanticVersion(1, 1, 7)) {
-    // Convert old password encoding to base64
-    std::wstring password = SimpleDecrypt(GetWstr(kSync_Service_Mal_Password));
-    Set(kSync_Service_Mal_Password, Base64Encode(password));
-    password = SimpleDecrypt(GetWstr(kSync_Service_Hummingbird_Password));
-    Set(kSync_Service_Hummingbird_Password, Base64Encode(password));
-
-    // Update torrent filters
-    foreach_(filter, Aggregator.filter_manager.filters) {
-      if (filter->name == L"Discard unknown titles") {
-        if (filter->conditions.size() == 1) {
-          auto condition = filter->conditions.begin();
-          if (condition->element == kFeedFilterElement_Meta_Id) {
-            filter->name = L"Discard and deactivate not-in-list anime";
-            condition->element = kFeedFilterElement_User_Status;
-            condition->value = ToWstr(anime::kNotInList);
-          }
-        }
-        break;
-      }
-    }
-  }
-
-  if (version <= base::SemanticVersion(1, 1, 8)) {
-    auto external_links = GetWstr(kApp_Interface_ExternalLinks);
-    ReplaceString(external_links, L"http://hummingboard.me", L"http://hb.cybrox.eu");
-    Set(kApp_Interface_ExternalLinks, external_links);
-  }
-
-  if (version <= base::SemanticVersion(1, 1, 11)) {
-    bool detect_streaming_media = false;
-    for (auto& media_player : MediaPlayers.items) {
-      if (media_player.mode == kMediaModeWebBrowser) {
-        if (media_player.enabled)
-          detect_streaming_media = true;
-        media_player.enabled = true;
-      }
-    }
-    Set(kRecognition_DetectStreamingMedia, detect_streaming_media);
-  }
-
-  if (version <= base::SemanticVersion(1, 2, 2)) {
-    auto external_links = GetWstr(kApp_Interface_ExternalLinks);
-    ReplaceString(external_links, L"http://mal.oko.im", L"http://graph.anime.plus");
-    std::vector<std::wstring> link_vector;
-    Split(external_links, L"\r\n", link_vector);
-    for (auto it = link_vector.begin(); it != link_vector.end(); ++it) {
-      if (StartsWith(*it, L"Hummingboard")) {
-        *it = L"Hummingbird Tools|https://hb.wopian.me";
-      } else if (StartsWith(*it, L"Mahou Showtime Schedule")) {
-        *it = L"Senpai Anime Charts|http://www.senpai.moe/?mode=calendar";
-        it = link_vector.insert(it, L"Monthly.moe|http://www.monthly.moe/weekly");
-        it = link_vector.insert(it, L"AniChart|http://anichart.net/airing");
-      } else if (StartsWith(*it, L"The Fansub Wiki")) {
-        *it = L"The Fansub Database|http://fansubdb.com";
-        it = link_vector.insert(it, L"Anime Streaming Search Engine|http://because.moe");
-        it = link_vector.insert(it, L"-");
-      }
-    }
-    external_links = Join(link_vector, L"\r\n");
-    Set(kApp_Interface_ExternalLinks, external_links);
-  }
-
-  if (version <= base::SemanticVersion(1, 2, 3)) {
-    if (GetBool(kTorrent_Download_UseAnimeFolder)) {
-      auto app_path = GetWstr(kTorrent_Download_AppPath);
-      if (IsEqual(GetFileName(app_path), L"deluge.exe")) {
-        app_path = GetPathOnly(app_path) + L"deluge-console.exe";
-        Set(kTorrent_Download_AppPath, app_path);
-        LOG(LevelWarning, L"Changed BitTorrent client from deluge.exe to deluge-console.exe");
-      }
-    }
-  }
-}
-
 void AppSettings::RestoreDefaults() {
   // Take a backup
-  std::wstring file = taiga::GetPath(taiga::kPathSettings);
+  std::wstring file = taiga::GetPath(taiga::Path::Settings);
   std::wstring backup = file + L".bak";
   DWORD flags = MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH;
   MoveFileEx(file.c_str(), backup.c_str(), flags);
@@ -567,7 +476,7 @@ void AppSettings::RestoreDefaults() {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-const sync::Service* GetCurrentService() {
+sync::Service* GetCurrentService() {
   std::wstring service_name = Settings[kSync_ActiveService];
   return ServiceManager.service(service_name);
 }
@@ -587,8 +496,8 @@ const std::wstring GetCurrentUsername() {
 
   if (service->id() == sync::kMyAnimeList) {
     username = Settings[kSync_Service_Mal_Username];
-  } else if (service->id() == sync::kHummingbird) {
-    username = Settings[kSync_Service_Hummingbird_Username];
+  } else if (service->id() == sync::kKitsu) {
+    username = Settings[kSync_Service_Kitsu_Username];
   }
 
   return username;
@@ -600,8 +509,8 @@ const std::wstring GetCurrentPassword() {
 
   if (service->id() == sync::kMyAnimeList) {
     password = Base64Decode(Settings[kSync_Service_Mal_Password]);
-  } else if (service->id() == sync::kHummingbird) {
-    password = Base64Decode(Settings[kSync_Service_Hummingbird_Password]);
+  } else if (service->id() == sync::kKitsu) {
+    password = Base64Decode(Settings[kSync_Service_Kitsu_Password]);
   }
 
   return password;

@@ -1,6 +1,6 @@
 /*
 ** Taiga
-** Copyright (C) 2010-2014, Eren Okka
+** Copyright (C) 2010-2017, Eren Okka
 ** 
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License as published by
@@ -16,18 +16,18 @@
 ** along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef TAIGA_LIBRARY_METADATA_H
-#define TAIGA_LIBRARY_METADATA_H
+#pragma once
 
 #include "base/time.h"
 #include "base/types.h"
 
 namespace library {
 
-enum TitleType {
-  kTitleTypeUnknown,
-  kTitleTypeSynonym,
-  kTitleTypeLangEnglish
+enum class TitleType {
+  Unknown,
+  Synonym,
+  LangEnglish,
+  LangJapanese,
 };
 
 struct Title {
@@ -67,5 +67,3 @@ struct Metadata {
 };
 
 }  // namespace library
-
-#endif  // TAIGA_LIBRARY_METADATA_H

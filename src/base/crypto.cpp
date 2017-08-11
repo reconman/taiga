@@ -1,6 +1,6 @@
 /*
 ** Taiga
-** Copyright (C) 2010-2014, Eren Okka
+** Copyright (C) 2010-2017, Eren Okka
 ** 
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License as published by
@@ -16,6 +16,7 @@
 ** along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include <algorithm>
 #include <string>
 #include <windows.h>
 
@@ -23,64 +24,6 @@
 #include "crypto.h"
 #include "gzip.h"
 #include "string.h"
-
-namespace base {
-const wchar_t encryption_char = L'?';
-const wchar_t* encryption_key = L"Tenori Taiga";
-const size_t encryption_length_min = 16;
-
-std::wstring Xor(std::wstring str, const std::wstring& key) {
-  for (size_t i = 0; i < str.size(); i++)
-    str[i] = str[i] ^ key[i % key.length()];
-
-  return str;
-}
-
-}  // namespace base
-
-std::wstring SimpleEncrypt(std::wstring str) {
-  // Set minimum length
-  if (str.length() > 0 && str.length() < base::encryption_length_min)
-    str.append(base::encryption_length_min - str.length(),
-               base::encryption_char);
-
-  // Encrypt
-  str = base::Xor(str, base::encryption_key);
-
-  // Convert to hexadecimal string
-  std::wstring buffer;
-  for (size_t i = 0; i < str.size(); i++) {
-    wchar_t c[32] = {'\0'};
-    _itow_s(str[i], c, 32, 16);
-    if (wcslen(c) == 1)
-      buffer.push_back('0');
-    buffer += c;
-  }
-  ToUpper(buffer);
-
-  return buffer;
-}
-
-std::wstring SimpleDecrypt(std::wstring str) {
-  // Convert from hexadecimal string
-  std::wstring buffer;
-  for (size_t i = 0; i < str.size(); i = i + 2) {
-    wchar_t c = static_cast<wchar_t>(wcstoul(str.substr(i, 2).c_str(),
-                                             nullptr, 16));
-    buffer.push_back(c);
-  }
-
-  // Decrypt
-  buffer = base::Xor(buffer, base::encryption_key);
-
-  // Trim characters appended to match the minimum length
-  if (buffer.size() >= base::encryption_length_min)
-    TrimRight(buffer, std::wstring(1, base::encryption_char).c_str());
-
-  return buffer;
-}
-
-////////////////////////////////////////////////////////////////////////////////
 
 StringCoder::StringCoder()
     : magic_string_("TAI"),
@@ -220,7 +163,7 @@ std::string HmacSha1(const std::string& key_bytes, const std::string& data) {
         key_blob.hdr.aiKeyAlg = CALG_RC2;
         key_blob.len = key_bytes.size();
         ZeroMemory(key_blob.key, sizeof(key_blob.key));
-        CopyMemory(key_blob.key, key_bytes.c_str(), min(key_bytes.size(), key_size));
+        CopyMemory(key_blob.key, key_bytes.c_str(), std::min(key_bytes.size(), key_size));
         if (CryptImportKey(hProv, (BYTE*)&key_blob, sizeof(key_blob), 0, CRYPT_IPSEC_HMAC_KEY, &hKey)) {
           if (CryptCreateHash(hProv, CALG_HMAC, hKey, 0, &hHmac)) {
             if (CryptSetHashParam(hHmac, HP_HMAC_INFO, (BYTE*)&HmacInfo, 0)) {

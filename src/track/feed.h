@@ -1,6 +1,6 @@
 /*
 ** Taiga
-** Copyright (C) 2010-2014, Eren Okka
+** Copyright (C) 2010-2017, Eren Okka
 ** 
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License as published by
@@ -16,9 +16,9 @@
 ** along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef TAIGA_TRACK_FEED_H
-#define TAIGA_TRACK_FEED_H
+#pragma once
 
+#include <map>
 #include <string>
 #include <vector>
 
@@ -30,27 +30,27 @@ namespace pugi {
 class xml_document;
 }
 
-enum FeedItemState {
-  kFeedItemBlank,
-  kFeedItemDiscardedNormal,
-  kFeedItemDiscardedInactive,
-  kFeedItemDiscardedHidden,
-  kFeedItemSelected
+enum class FeedItemState {
+  Blank,
+  DiscardedNormal,
+  DiscardedInactive,
+  DiscardedHidden,
+  Selected,
 };
 
-enum FeedCategory {
+enum class FeedCategory {
   // Broadcatching for torrent files and DDL
-  kFeedCategoryLink,
+  Link,
   // News around the web
-  kFeedCategoryText,
+  Text,
   // Airing times for anime titles
-  kFeedCategoryTime
+  Time,
 };
 
-enum TorrentCategory {
-  kTorrentCategoryAnime,
-  kTorrentCategoryBatch,
-  kTorrentCategoryOther
+enum class TorrentCategory {
+  Anime,
+  Batch,
+  Other,
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -66,7 +66,9 @@ public:
                author,
                category,
                comments,
-               enclosure,
+               enclosure_url,
+               enclosure_length,
+               enclosure_type,
                guid,
                pub_date,
                source;
@@ -87,6 +89,7 @@ public:
   bool operator<(const FeedItem& item) const;
   bool operator==(const FeedItem& item) const;
 
+  std::map<std::wstring, std::wstring> elements;
   std::wstring info_link;
   std::wstring magnet_link;
   FeedItemState state;
@@ -144,10 +147,12 @@ public:
 
   void HandleFeedCheck(Feed& feed, const std::string& data, bool automatic);
   void HandleFeedDownload(Feed& feed, const std::string& data);
+  void HandleFeedDownloadError(Feed& feed);
   bool ValidateFeedDownload(const HttpRequest& http_request, HttpResponse& http_response);
 
   void ExamineData(Feed& feed);
-  void ParseDescription(FeedItem& feed_item, const std::wstring& source);
+  void ParseFeedItem(const std::wstring& source, FeedItem& feed_item);
+  void CleanupDescription(std::wstring& description);
 
   bool LoadArchive();
   bool SaveArchive() const;
@@ -160,6 +165,7 @@ private:
   bool CompareFeedItems(const GenericFeedItem& item1, const GenericFeedItem& item2);
   FeedItem* FindFeedItemByLink(Feed& feed, const std::wstring& link);
   void HandleFeedDownloadOpen(FeedItem& feed_item, const std::wstring& file);
+  bool IsMagnetLink(const FeedItem& feed_item) const;
 
   std::vector<std::wstring> download_queue_;
   std::vector<Feed> feeds_;
@@ -167,5 +173,3 @@ private:
 };
 
 extern class Aggregator Aggregator;
-
-#endif  // TAIGA_TRACK_FEED_H

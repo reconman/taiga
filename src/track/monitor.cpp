@@ -1,6 +1,6 @@
 /*
 ** Taiga
-** Copyright (C) 2010-2014, Eren Okka
+** Copyright (C) 2010-2017, Eren Okka
 ** 
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License as published by
@@ -44,8 +44,8 @@ static void ChangeAnimeFolder(anime::Item& anime_item,
   anime_item.SetFolder(path);
   Settings.Save();
 
-  LOG(LevelDebug, L"Anime folder changed: " + anime_item.GetTitle() + L"\n"
-                  L"Path: " + anime_item.GetFolder());
+  LOGD(L"Anime folder changed: " + anime_item.GetTitle() + L"\n"
+       L"Path: " + anime_item.GetFolder());
 
   if (path.empty()) {
     for (int i = 1; i <= anime_item.GetAvailableEpisodeCount(); ++i) {
@@ -59,16 +59,16 @@ static void ChangeAnimeFolder(anime::Item& anime_item,
 void FolderMonitor::HandleChangeNotification(
     const DirectoryChangeNotification& notification) const {
   switch (notification.type) {
-    case DirectoryChangeNotification::kTypeDirectory:
+    case DirectoryChangeNotification::Type::Directory:
       OnDirectory(notification);
       break;
-    case DirectoryChangeNotification::kTypeFile:
+    case DirectoryChangeNotification::Type::File:
       OnFile(notification);
       break;
     default:
-      LOG(LevelDebug, L"Unknown change type\n"
-                      L"Path: " + notification.path + L"\n"
-                      L"Filename: " + notification.filename.first);
+      LOGD(L"Unknown change type\n"
+           L"Path: " + notification.path + L"\n"
+           L"Filename: " + notification.filename.first);
       break;
   }
 }
@@ -78,13 +78,13 @@ static anime::Item* FindAnimeItem(const DirectoryChangeNotification& notificatio
   std::wstring path;
   static track::recognition::ParseOptions parse_options;
   switch (notification.type) {
-    case DirectoryChangeNotification::kTypeDirectory:
+    case DirectoryChangeNotification::Type::Directory:
       path = GetFileName(notification.filename.first);
       parse_options.parse_path = false;
       parse_options.streaming_media = false;
       break;
     default:
-    case DirectoryChangeNotification::kTypeFile:
+    case DirectoryChangeNotification::Type::File:
       path = notification.path + notification.filename.first;
       parse_options.parse_path = true;
       parse_options.streaming_media = false;
@@ -96,14 +96,14 @@ static anime::Item* FindAnimeItem(const DirectoryChangeNotification& notificatio
 
   static track::recognition::MatchOptions match_options;
   switch (notification.type) {
-    case DirectoryChangeNotification::kTypeDirectory:
+    case DirectoryChangeNotification::Type::Directory:
       match_options.allow_sequels = false;
       match_options.check_airing_date = false;
       match_options.check_anime_type = false;
       match_options.check_episode_number = false;
       break;
     default:
-    case DirectoryChangeNotification::kTypeFile:
+    case DirectoryChangeNotification::Type::File:
       match_options.allow_sequels = true;
       match_options.check_airing_date = true;
       match_options.check_anime_type = true;
@@ -171,8 +171,8 @@ void FolderMonitor::OnFile(const DirectoryChangeNotification& notification) cons
   std::wstring path = notification.path + notification.filename.first;
   for (int number = lower_bound; number <= upper_bound; ++number) {
     if (anime_item->SetEpisodeAvailability(number, path_available, path)) {
-      LOG(LevelDebug, anime_item->GetTitle() + L" #" + ToWstr(number) + L" is " +
-          (path_available ? L"available." : L"unavailable."));
+      LOGD(anime_item->GetTitle() + L" #" + ToWstr(number) + L" is " +
+           (path_available ? L"available." : L"unavailable."));
     }
   }
 }

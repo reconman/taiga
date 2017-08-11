@@ -1,6 +1,6 @@
 /*
 ** Taiga
-** Copyright (C) 2010-2014, Eren Okka
+** Copyright (C) 2010-2017, Eren Okka
 ** 
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License as published by
@@ -16,6 +16,8 @@
 ** along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include <windows/win/common_dialogs.h>
+
 #include "base/log.h"
 #include "base/process.h"
 #include "base/string.h"
@@ -23,7 +25,7 @@
 #include "library/anime_util.h"
 #include "library/discover.h"
 #include "library/history.h"
-#include "sync/hummingbird_util.h"
+#include "sync/kitsu_util.h"
 #include "sync/myanimelist_util.h"
 #include "sync/sync.h"
 #include "taiga/announce.h"
@@ -41,10 +43,9 @@
 #include "ui/dialog.h"
 #include "ui/menu.h"
 #include "ui/ui.h"
-#include "win/win_commondialog.h"
 
 void ExecuteAction(std::wstring action, WPARAM wParam, LPARAM lParam) {
-  LOG(LevelDebug, action);
+  LOGD(action);
 
   std::wstring body;
   size_t pos = action.find('(');
@@ -63,7 +64,7 @@ void ExecuteAction(std::wstring action, WPARAM wParam, LPARAM lParam) {
   // CheckUpdates()
   //   Checks for a new version of the program.
   if (action == L"CheckUpdates") {
-    ui::ShowDialog(ui::kDialogUpdate);
+    ui::ShowDialog(ui::Dialog::Update);
 
   // Exit(), Quit()
   //   Exits from Taiga.
@@ -107,8 +108,8 @@ void ExecuteAction(std::wstring action, WPARAM wParam, LPARAM lParam) {
       case sync::kMyAnimeList:
         sync::myanimelist::ViewAnimePage(anime_id);
         break;
-      case sync::kHummingbird:
-        sync::hummingbird::ViewAnimePage(anime_id);
+      case sync::kKitsu:
+        sync::kitsu::ViewAnimePage(anime_id);
         break;
     }
 
@@ -118,9 +119,6 @@ void ExecuteAction(std::wstring action, WPARAM wParam, LPARAM lParam) {
     switch (taiga::GetCurrentServiceId()) {
       case sync::kMyAnimeList:
         sync::myanimelist::ViewUpcomingAnime();
-        break;
-      case sync::kHummingbird:
-        sync::hummingbird::ViewUpcomingAnime();
         break;
     }
 
@@ -135,16 +133,16 @@ void ExecuteAction(std::wstring action, WPARAM wParam, LPARAM lParam) {
   } else if (action == L"MalViewHistory") {
     sync::myanimelist::ViewHistory();
 
-  // HummingbirdViewProfile()
-  // HummingbirdViewDashboard()
-  // HummingbirdViewRecommendations()
-  //   Opens up Hummingbird user pages.
-  } else if (action == L"HummingbirdViewProfile") {
-    sync::hummingbird::ViewProfile();
-  } else if (action == L"HummingbirdViewDashboard") {
-    sync::hummingbird::ViewDashboard();
-  } else if (action == L"HummingbirdViewRecommendations") {
-    sync::hummingbird::ViewRecommendations();
+  // KitsuViewFeed()
+  // KitsuViewLibrary()
+  // KitsuViewProfile()
+  //   Opens up Kitsu user pages.
+  } else if (action == L"KitsuViewFeed") {
+    sync::kitsu::ViewFeed();
+  } else if (action == L"KitsuViewLibrary") {
+    sync::kitsu::ViewLibrary();
+  } else if (action == L"KitsuViewProfile") {
+    sync::kitsu::ViewProfile();
 
   //////////////////////////////////////////////////////////////////////////////
 
@@ -171,7 +169,7 @@ void ExecuteAction(std::wstring action, WPARAM wParam, LPARAM lParam) {
   // About()
   //   Shows about window.
   } else if (action == L"About") {
-    ui::ShowDialog(ui::kDialogAbout);
+    ui::ShowDialog(ui::Dialog::About);
 
   // Info([anime_id])
   //   Shows anime information window.
@@ -182,7 +180,7 @@ void ExecuteAction(std::wstring action, WPARAM wParam, LPARAM lParam) {
 
   // MainDialog()
   } else if (action == L"MainDialog") {
-    ui::ShowDialog(ui::kDialogMain);
+    ui::ShowDialog(ui::Dialog::Main);
 
   // Settings()
   //   Shows settings window.
@@ -257,7 +255,7 @@ void ExecuteAction(std::wstring action, WPARAM wParam, LPARAM lParam) {
   //   Opens up a dialog to add new library folder.
   } else if (action == L"AddFolder") {
     std::wstring path;
-    if (win::BrowseForFolder(ui::GetWindowHandle(ui::kDialogMain),
+    if (win::BrowseForFolder(ui::GetWindowHandle(ui::Dialog::Main),
                              L"Add a Library Folder", L"", path)) {
       Settings.library_folders.push_back(path);
       if (Settings.GetBool(taiga::kLibrary_WatchFolders))
@@ -477,7 +475,7 @@ void ExecuteAction(std::wstring action, WPARAM wParam, LPARAM lParam) {
         std::wstring default_path, path;
         if (!Settings.library_folders.empty())
           default_path = Settings.library_folders.front();
-        if (win::BrowseForFolder(ui::GetWindowHandle(ui::kDialogMain),
+        if (win::BrowseForFolder(ui::GetWindowHandle(ui::Dialog::Main),
                                  L"Select Anime Folder",
                                  default_path, path)) {
           anime_item->SetFolder(path);
@@ -486,8 +484,15 @@ void ExecuteAction(std::wstring action, WPARAM wParam, LPARAM lParam) {
       }
     }
     ui::ClearStatusText();
-    if (!anime_item->GetFolder().empty()) {
-      Execute(anime_item->GetFolder());
+    const auto next_episode_path = anime_item->GetNextEpisodePath();
+    const auto anime_folder = anime_item->GetFolder();
+    if (!next_episode_path.empty()) {
+      if (anime_folder.empty() || StartsWith(next_episode_path, anime_folder))
+        if (OpenFolderAndSelectFile(next_episode_path))
+          return;
+    }
+    if (!anime_folder.empty()) {
+      Execute(anime_folder);
     }
 
   //////////////////////////////////////////////////////////////////////////////
@@ -535,11 +540,25 @@ void ExecuteAction(std::wstring action, WPARAM wParam, LPARAM lParam) {
   // Season_Load(file)
   //   Loads season data.
   } else if (action == L"Season_Load") {
-    if (SeasonDatabase.LoadSeason(body)) {
-      Settings.Set(taiga::kApp_Seasons_LastSeason,
-                   SeasonDatabase.current_season.GetString());
-      SeasonDatabase.Review();
-      ui::OnSeasonLoad(SeasonDatabase.IsRefreshRequired());
+    switch (taiga::GetCurrentServiceId()) {
+      case sync::kMyAnimeList:
+        if (SeasonDatabase.LoadSeason(body)) {
+          Settings.Set(taiga::kApp_Seasons_LastSeason,
+                       SeasonDatabase.current_season.GetString());
+          SeasonDatabase.Review();
+          ui::OnSeasonLoad(SeasonDatabase.IsRefreshRequired());
+        }
+        break;
+      case sync::kKitsu:
+        if (SeasonDatabase.LoadSeasonFromMemory(body)) {
+          Settings.Set(taiga::kApp_Seasons_LastSeason,
+                       SeasonDatabase.current_season.GetString());
+          ui::OnSeasonLoad(false);
+          if (SeasonDatabase.items.empty()) {
+            ui::DlgSeason.GetData();
+          }
+        }
+        break;
     }
 
   // Season_GroupBy(group)
@@ -574,6 +593,6 @@ void ExecuteAction(std::wstring action, WPARAM wParam, LPARAM lParam) {
 
   // Unknown
   } else {
-    LOG(LevelWarning, L"Unknown action: " + action);
+    LOGW(L"Unknown action: " + action);
   }
 }

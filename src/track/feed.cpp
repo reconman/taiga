@@ -1,6 +1,6 @@
 /*
 ** Taiga
-** Copyright (C) 2010-2014, Eren Okka
+** Copyright (C) 2010-2017, Eren Okka
 ** 
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License as published by
@@ -17,7 +17,6 @@
 */
 
 #include "base/base64.h"
-#include "base/foreach.h"
 #include "base/html.h"
 #include "base/string.h"
 #include "base/xml.h"
@@ -32,29 +31,29 @@ GenericFeedItem::GenericFeedItem()
 }
 
 FeedItem::FeedItem()
-    : state(kFeedItemBlank) {
+    : state(FeedItemState::Blank) {
 }
 
 void FeedItem::Discard(int option) {
   switch (option) {
     default:
     case kFeedFilterOptionDefault:
-      state = kFeedItemDiscardedNormal;
+      state = FeedItemState::DiscardedNormal;
       break;
     case kFeedFilterOptionDeactivate:
-      state = kFeedItemDiscardedInactive;
+      state = FeedItemState::DiscardedInactive;
       break;
     case kFeedFilterOptionHide:
-      state = kFeedItemDiscardedHidden;
+      state = FeedItemState::DiscardedHidden;
       break;
   }
 }
 
 bool FeedItem::IsDiscarded() const {
   switch (state) {
-    case kFeedItemDiscardedNormal:
-    case kFeedItemDiscardedInactive:
-    case kFeedItemDiscardedHidden:
+    case FeedItemState::DiscardedNormal:
+    case FeedItemState::DiscardedInactive:
+    case FeedItemState::DiscardedHidden:
       return true;
     default:
       return false;
@@ -66,7 +65,8 @@ bool FeedItem::operator<(const FeedItem& item) const {
   static const int state_priorities[] = {1, 2, 3, 4, 0};
 
   // Sort items by the priority of their state
-  return state_priorities[this->state] < state_priorities[item.state];
+  return state_priorities[static_cast<size_t>(this->state)] <
+         state_priorities[static_cast<size_t>(item.state)];
 }
 
 bool FeedItem::operator==(const FeedItem& item) const {
@@ -92,32 +92,32 @@ bool FeedItem::operator==(const FeedItem& item) const {
 
 TorrentCategory FeedItem::GetTorrentCategory() const {
   if (InStr(category, L"Batch") > -1)  // Respect feed's own categorization
-    return kTorrentCategoryBatch;
+    return TorrentCategory::Batch;
 
   if (Meow.IsBatchRelease(episode_data))
-    return kTorrentCategoryBatch;
+    return TorrentCategory::Batch;
 
   if (!Meow.IsValidAnimeType(episode_data))
-    return kTorrentCategoryOther;
+    return TorrentCategory::Other;
 
   if (anime::IsEpisodeRange(episode_data))
-    return kTorrentCategoryBatch;
+    return TorrentCategory::Batch;
 
   if (!episode_data.file_extension().empty())
     if (!Meow.IsValidFileExtension(episode_data.file_extension()))
-      return kTorrentCategoryOther;
+      return TorrentCategory::Other;
 
-  return kTorrentCategoryAnime;
+  return TorrentCategory::Anime;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
 Feed::Feed()
-    : category(kFeedCategoryLink) {
+    : category(FeedCategory::Link) {
 }
 
 std::wstring Feed::GetDataPath() {
-  std::wstring path = taiga::GetPath(taiga::kPathFeed);
+  std::wstring path = taiga::GetPath(taiga::Path::Feed);
 
   if (!link.empty()) {
     Url url(link);
@@ -132,7 +132,8 @@ bool Feed::Load() {
 
   xml_document document;
   std::wstring file = GetDataPath() + L"feed.xml";
-  xml_parse_result parse_result = document.load_file(file.c_str());
+  const unsigned int options = pugi::parse_default | pugi::parse_trim_pcdata;
+  xml_parse_result parse_result = document.load_file(file.c_str(), options);
 
   if (parse_result.status != pugi::status_ok)
     return false;
@@ -173,26 +174,32 @@ void Feed::Load(const xml_document& document) {
     item.guid = XmlReadStrValue(node, L"guid");
     item.pub_date = XmlReadStrValue(node, L"pubDate");
 
+    xml_node enclosure_node = node.child(L"enclosure");
+    if (!enclosure_node.empty()) {
+      item.enclosure_url = enclosure_node.attribute(L"url").value();
+      item.enclosure_length = enclosure_node.attribute(L"length").value();
+      item.enclosure_type = enclosure_node.attribute(L"type").value();
+    }
+
+    for (auto element : node.children()) {
+      if (InStr(element.name(), L":") > -1) {
+        item.elements[element.name()] = element.child_value();
+      }
+    }
+
     auto permalink = XmlReadStrValue(node, L"isPermaLink");
     if (!permalink.empty())
       item.permalink = ToBool(permalink);
 
-    // Skip if title or link is empty
-    if (category == kFeedCategoryLink)
+    if (category == FeedCategory::Link)
       if (item.title.empty() || item.link.empty())
         continue;
 
-    // Clean up title
     DecodeHtmlEntities(item.title);
-    ReplaceString(item.title, L"\\'", L"'");
-    // Clean up description
-    ReplaceString(item.description, L"<br/>", L"\n");
-    ReplaceString(item.description, L"<br />", L"\n");
-    StripHtmlTags(item.description);
     DecodeHtmlEntities(item.description);
-    Trim(item.description, L" \n");
-    Aggregator.ParseDescription(item, link);
-    ReplaceString(item.description, L"\n", L" | ");
+
+    Aggregator.ParseFeedItem(link, item);
+    Aggregator.CleanupDescription(item.description);
 
     items.push_back(item);
   }

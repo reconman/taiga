@@ -1,6 +1,6 @@
 /*
 ** Taiga
-** Copyright (C) 2010-2014, Eren Okka
+** Copyright (C) 2010-2017, Eren Okka
 ** 
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License as published by
@@ -16,20 +16,19 @@
 ** along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef TAIGA_UI_DLG_FORMAT_H
-#define TAIGA_UI_DLG_FORMAT_H
+#pragma once
 
-#include "win/ctrl/win_ctrl.h"
-#include "win/win_dialog.h"
+#include <windows/win/common_controls.h>
+#include <windows/win/dialog.h>
 
 namespace ui {
 
-enum FormatModes {
-  kFormatModeHttp,
-  kFormatModeMirc,
-  kFormatModeSkype,
-  kFormatModeTwitter,
-  kFormatModeBalloon
+enum class FormatDialogMode {
+  Http,
+  Mirc,
+  Skype,
+  Twitter,
+  Balloon,
 };
 
 class FormatDialog : public win::Dialog {
@@ -44,7 +43,7 @@ public:
   void ColorizeText();
   void RefreshPreviewText();
 
-  int mode;
+  FormatDialogMode mode;
 
 private:
   win::RichEdit rich_edit_;
@@ -53,5 +52,3 @@ private:
 extern FormatDialog DlgFormat;
 
 }  // namespace ui
-
-#endif  // TAIGA_UI_DLG_FORMAT_H

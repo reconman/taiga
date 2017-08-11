@@ -1,6 +1,6 @@
 /*
 ** Taiga
-** Copyright (C) 2010-2014, Eren Okka
+** Copyright (C) 2010-2017, Eren Okka
 ** 
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License as published by
@@ -16,14 +16,17 @@
 ** along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef TAIGA_TAIGA_SETTINGS_H
-#define TAIGA_TAIGA_SETTINGS_H
+#pragma once
 
 #include <map>
 #include <string>
 #include <vector>
 
 #include "base/settings.h"
+
+namespace pugi {
+class xml_node;
+}
 
 namespace sync {
 class Service;
@@ -36,9 +39,7 @@ enum AppSettingName {
   kAppSettingNameFirst = 0,  // used for iteration
 
   // Meta
-  kMeta_Version_Major = 0,
-  kMeta_Version_Minor,
-  kMeta_Version_Revision,
+  kMeta_Version = 0,
 
   // Services
   kSync_ActiveService,
@@ -46,9 +47,10 @@ enum AppSettingName {
   kSync_Service_Mal_Username,
   kSync_Service_Mal_Password,
   kSync_Service_Mal_UseHttps,
-  kSync_Service_Hummingbird_Username,
-  kSync_Service_Hummingbird_Password,
-  kSync_Service_Hummingbird_UseHttps,
+  kSync_Service_Kitsu_Username,
+  kSync_Service_Kitsu_Password,
+  kSync_Service_Kitsu_PartialLibrary,
+  kSync_Service_Kitsu_UseHttps,
 
   // Library
   kLibrary_FileSizeThreshold,
@@ -79,8 +81,7 @@ enum AppSettingName {
   kApp_Interface_ExternalLinks,
 
   // Recognition
-  kRecognition_BrowserDetectionMethod,
-  kRecognition_MediaPlayerDetectionMethod,
+  kRecognition_DetectionInterval,
   kRecognition_DetectMediaPlayers,
   kRecognition_DetectStreamingMedia,
   kRecognition_IgnoredStrings,
@@ -101,9 +102,11 @@ enum AppSettingName {
   kStream_Ann,
   kStream_Crunchyroll,
   kStream_Daisuki,
+  kStream_Hidive,
   kStream_Plex,
   kStream_Veoh,
   kStream_Viz,
+  kStream_Vrv,
   kStream_Wakanim,
   kStream_Youtube,
 
@@ -141,6 +144,7 @@ enum AppSettingName {
   kTorrent_Download_CreateSubfolder,
   kTorrent_Download_SortBy,
   kTorrent_Download_SortOrder,
+  kTorrent_Download_UseMagnet,
   kTorrent_Filter_Enabled,
   kTorrent_Filter_ArchiveMaxCount,
 
@@ -172,16 +176,17 @@ public:
   void ApplyChanges(const std::wstring& previous_service,
                     const std::wstring& previous_user,
                     const std::wstring& previous_theme);
-  void HandleCompatibility();
+  bool HandleCompatibility();
   void RestoreDefaults();
 
   std::vector<std::wstring> library_folders;
 
 private:
   void InitializeMap();
+  void ReadLegacyValues(const pugi::xml_node& settings);
 };
 
-const sync::Service* GetCurrentService();
+sync::Service* GetCurrentService();
 sync::ServiceId GetCurrentServiceId();
 const std::wstring GetCurrentUsername();
 const std::wstring GetCurrentPassword();
@@ -189,5 +194,3 @@ const std::wstring GetCurrentPassword();
 }  // namespace taiga
 
 extern taiga::AppSettings Settings;
-
-#endif  // TAIGA_TAIGA_SETTINGS_H

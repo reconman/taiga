@@ -1,6 +1,6 @@
 /*
 ** Taiga
-** Copyright (C) 2010-2014, Eren Okka
+** Copyright (C) 2010-2017, Eren Okka
 ** 
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License as published by
@@ -18,6 +18,7 @@
 
 #include <map>
 
+#include "base/file.h"
 #include "base/string.h"
 #include "sync/manager.h"
 #include "taiga/path.h"
@@ -27,62 +28,69 @@
 namespace taiga {
 
 std::wstring GetDataPath() {
+  std::wstring path;
+
 #ifdef TAIGA_PORTABLE
   // Return current path in portable mode
-  return AddTrailingSlash(GetPathOnly(Taiga.GetModulePath())) + L"data\\";
+  path = GetPathOnly(Taiga.GetModulePath());
 #else
   // Return %AppData% folder
-  WCHAR buffer[MAX_PATH];
-  if (SUCCEEDED(SHGetFolderPath(nullptr, CSIDL_APPDATA | CSIDL_FLAG_CREATE,
-                                nullptr, SHGFP_TYPE_CURRENT, buffer)))
-    return AddTrailingSlash(buffer) + TAIGA_APP_NAME + L"\\";
+  path = GetKnownFolderPath(FOLDERID_RoamingAppData);
+  AddTrailingSlash(path);
+  path += TAIGA_APP_NAME;
 #endif
+
+  AddTrailingSlash(path);
+  return path + L"data\\";
+}
+
+std::wstring GetUserDirectoryName(const sync::ServiceId service_id) {
+  return GetCurrentUsername() + L"@" +
+         ServiceManager.service(service_id)->canonical_name();
 }
 
 std::wstring GetUserDirectoryName() {
-  std::wstring username = GetCurrentUsername();
-  auto service = GetCurrentService();
-  return username + L"@" + service->canonical_name();
+  return GetUserDirectoryName(GetCurrentServiceId());
 }
 
-std::wstring GetPath(PathType type) {
+std::wstring GetPath(Path path) {
   static const std::wstring data_path = GetDataPath();
 
-  switch (type) {
+  switch (path) {
     default:
-    case kPathData:
+    case Path::Data:
       return data_path;
-    case kPathDatabase:
+    case Path::Database:
       return data_path + L"db\\";
-    case kPathDatabaseAnime:
+    case Path::DatabaseAnime:
       return data_path + L"db\\anime.xml";
-    case kPathDatabaseAnimeRelations:
+    case Path::DatabaseAnimeRelations:
       return data_path + L"db\\anime-relations.txt";
-    case kPathDatabaseImage:
+    case Path::DatabaseImage:
       return data_path + L"db\\image\\";
-    case kPathDatabaseSeason:
+    case Path::DatabaseSeason:
       return data_path + L"db\\season\\";
-    case kPathFeed:
+    case Path::Feed:
       return data_path + L"feed\\";
-    case kPathFeedHistory:
+    case Path::FeedHistory:
       return data_path + L"feed\\history.xml";
-    case kPathMedia:
-      return data_path + L"media.xml";
-    case kPathSettings:
+    case Path::Media:
+      return data_path + L"players.anisthesia";
+    case Path::Settings:
       return data_path + L"settings.xml";
-    case kPathTest:
+    case Path::Test:
       return data_path + L"test\\";
-    case kPathTestRecognition:
+    case Path::TestRecognition:
       return data_path + L"test\\recognition.xml";
-    case kPathTheme:
+    case Path::Theme:
       return data_path + L"theme\\";
-    case kPathThemeCurrent:
+    case Path::ThemeCurrent:
       return data_path + L"theme\\" + Settings[kApp_Interface_Theme] + L"\\theme.xml";
-    case kPathUser:
+    case Path::User:
       return data_path + L"user\\";
-    case kPathUserHistory:
+    case Path::UserHistory:
       return data_path + L"user\\" + GetUserDirectoryName() + L"\\history.xml";
-    case kPathUserLibrary:
+    case Path::UserLibrary:
       return data_path + L"user\\" + GetUserDirectoryName() + L"\\anime.xml";
   }
 }

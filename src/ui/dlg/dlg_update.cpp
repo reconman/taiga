@@ -1,6 +1,6 @@
 /*
 ** Taiga
-** Copyright (C) 2010-2014, Eren Okka
+** Copyright (C) 2010-2017, Eren Okka
 ** 
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License as published by
@@ -60,6 +60,7 @@ INT_PTR UpdateDialog::DialogProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPa
     case WM_CTLCOLORSTATIC: {
       win::Dc dc = reinterpret_cast<HDC>(wParam);
       dc.SetBkMode(TRANSPARENT);
+      dc.SetTextColor(::GetSysColor(COLOR_WINDOWTEXT));
       dc.DetachDc();
       return reinterpret_cast<INT_PTR>(::GetSysColorBrush(COLOR_WINDOW));
     }
@@ -80,7 +81,7 @@ BOOL UpdateDialog::OnDestroy() {
     }
   } else {
     // Create/activate main window
-    ShowDialog(kDialogMain);
+    ShowDialog(ui::Dialog::Main);
   }
 
   return TRUE;

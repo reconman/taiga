@@ -1,6 +1,6 @@
 /*
 ** Taiga
-** Copyright (C) 2010-2014, Eren Okka
+** Copyright (C) 2010-2017, Eren Okka
 ** 
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License as published by
@@ -18,9 +18,10 @@
 
 #include <regex>
 
+#include <semaver/semaver/version.h>
+
 #include "base/file.h"
 #include "base/log.h"
-#include "base/version.h"
 #include "sync/service.h"
 #include "taiga/path.h"
 #include "taiga/settings.h"
@@ -91,7 +92,7 @@ static bool ParseRule(const std::wstring& rule) {
       switch (taiga::GetCurrentServiceId()) {
         case sync::kMyAnimeList:
           return ToInt(match_results[first].str());
-        case sync::kHummingbird:
+        case sync::kKitsu:
           return ToInt(match_results[second].str());
         default:
           return 0;
@@ -135,11 +136,11 @@ static bool ParseRule(const std::wstring& rule) {
 }
 
 bool Engine::ReadRelations() {
-  std::wstring path = taiga::GetPath(taiga::kPathDatabaseAnimeRelations);
+  std::wstring path = taiga::GetPath(taiga::Path::DatabaseAnimeRelations);
   std::string document;
 
   if (!ReadFromFile(path, document)) {
-    LOG(LevelWarning, L"Could not read anime relations data.");
+    LOGW(L"Could not read anime relations data.");
     Settings.Set(taiga::kRecognition_RelationsLastModified, std::wstring());
     return false;
   }
@@ -153,12 +154,12 @@ bool Engine::ReadRelations(const std::string& document) {
   std::vector<std::wstring> lines;
   Split(StrToWstr(document), L"\n", lines);
 
-  enum FileSections {
-    kUnknownSection,
-    kMetaSection,
-    kRulesSection,
+  enum class FileSection {
+    Unknown,
+    Meta,
+    Rules,
   };
-  auto current_section = kUnknownSection;
+  auto current_section = FileSection::Unknown;
 
   for (auto& line : lines) {
     Trim(line, L"\r ");
@@ -171,17 +172,17 @@ bool Engine::ReadRelations(const std::string& document) {
     if (StartsWith(line, L"::")) {
       auto section = line.substr(2);
       if (section == L"meta") {
-        current_section = kMetaSection;
+        current_section = FileSection::Meta;
       } else if (section == L"rules") {
-        current_section = kRulesSection;
+        current_section = FileSection::Rules;
       } else {
-        current_section = kUnknownSection;
+        current_section = FileSection::Unknown;
       }
       continue;
     }
 
     switch (current_section) {
-      case kMetaSection: {
+      case FileSection::Meta: {
         TrimLeft(line, L"- ");
         static const std::wregex pattern(L"([a-z_]+): (.+)");
         std::match_results<std::wstring::const_iterator> match_results;
@@ -189,20 +190,19 @@ bool Engine::ReadRelations(const std::string& document) {
           auto name = match_results[1].str();
           auto value = match_results[2].str();
           if (name == L"version") {
-            base::SemanticVersion version(value);
+            semaver::Version version(WstrToStr(value));
             if (version > Taiga.version)
-              LOG(LevelDebug, L"Anime relations version is larger than "
-                              L"application version.");
+              LOGD(L"Anime relations version is larger than application version.");
           } else if (name == L"last_modified") {
             Settings.Set(taiga::kRecognition_RelationsLastModified, value);
           }
         }
         break;
       }
-      case kRulesSection: {
+      case FileSection::Rules: {
         TrimLeft(line, L"- ");
         if (!ParseRule(line))
-          LOG(LevelWarning, L"Could not parse rule: " + line);
+          LOGW(L"Could not parse rule: " + line);
         break;
       }
     }

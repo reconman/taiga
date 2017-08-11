@@ -1,6 +1,6 @@
 /*
 ** Taiga
-** Copyright (C) 2010-2014, Eren Okka
+** Copyright (C) 2010-2017, Eren Okka
 ** 
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License as published by
@@ -15,6 +15,8 @@
 ** You should have received a copy of the GNU General Public License
 ** along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
+
+#include <windows/win/task_dialog.h>
 
 #include "base/process.h"
 #include "base/string.h"
@@ -49,8 +51,7 @@
 #include "ui/dlg/dlg_update.h"
 #include "ui/menu.h"
 #include "ui/theme.h"
-#include "win/win_taskbar.h"
-#include "win/win_taskdialog.h"
+#include "ui/ui.h"
 
 namespace ui {
 
@@ -81,7 +82,7 @@ BOOL MainDialog::OnInitDialog() {
   taiga::timers.Initialize();
 
   // Add icon to taskbar
-  Taskbar.Create(GetWindowHandle(), nullptr, TAIGA_APP_TITLE);
+  taskbar.Create(GetWindowHandle(), kAppSysTrayId, nullptr, TAIGA_APP_TITLE);
 
   ChangeStatus();
   UpdateTip();
@@ -228,11 +229,11 @@ void MainDialog::CreateDialogControls() {
     fMask, fStyle);
   rebar.InsertBand(toolbar_main.GetWindowHandle(),
     GetSystemMetrics(SM_CXSCREEN),
-    win::kControlMargin - 2, 0, 0, 0, 0, 0,
+    kControlMargin - 2, 0, 0, 0, 0, 0,
     HIWORD(toolbar_main.GetButtonSize()) + 2,
     fMask, fStyle | RBBS_BREAK);
   rebar.InsertBand(toolbar_search.GetWindowHandle(),
-    0, win::kControlMargin, 0, rcEditWindow.Width() + win::kControlMargin, 0, 0, 0,
+    0, kControlMargin, 0, rcEditWindow.Width() + kControlMargin, 0, 0, 0,
     HIWORD(toolbar_search.GetButtonSize()),
     fMask, fStyle);
 }
@@ -396,12 +397,12 @@ BOOL MainDialog::PreTranslateMessage(MSG* pMsg) {
             if (text.empty())
               break;
             switch (search_bar.mode) {
-              case kSearchModeService: {
+              case SearchMode::Service: {
                 BOOL local_search = GetKeyState(VK_CONTROL) & 0x8000;
                 ExecuteAction(L"SearchAnime(" + text + L")", local_search);
                 return TRUE;
               }
-              case kSearchModeFeed: {
+              case SearchMode::Feed: {
                 DlgTorrent.Search(Settings[taiga::kTorrent_Discovery_SearchUrl], text);
                 return TRUE;
               }
@@ -480,7 +481,7 @@ BOOL MainDialog::PreTranslateMessage(MSG* pMsg) {
             case kSidebarItemFeeds: {
               // Check new torrents
               edit.SetText(L"");
-              Aggregator.CheckFeed(kFeedCategoryLink,
+              Aggregator.CheckFeed(FeedCategory::Link,
                                    Settings[taiga::kTorrent_Discovery_Source]);
               return TRUE;
             }
@@ -604,10 +605,10 @@ BOOL MainDialog::OnDestroy() {
     }
   }
 
-  ui::DestroyDialog(ui::kDialogAbout);
-  ui::DestroyDialog(ui::kDialogAnimeInformation);
-  ui::DestroyDialog(ui::kDialogSettings);
-  ui::DestroyDialog(ui::kDialogUpdate);
+  ui::EndDialog(ui::Dialog::About);
+  ui::EndDialog(ui::Dialog::AnimeInformation);
+  ui::EndDialog(ui::Dialog::Settings);
+  ui::EndDialog(ui::Dialog::Update);
 
   Taiga.Uninitialize();
 
@@ -686,11 +687,11 @@ void MainDialog::OnSize(UINT uMsg, UINT nType, SIZE size) {
 void MainDialog::OnTaskbarCallback(UINT uMsg, LPARAM lParam) {
   // Taskbar creation notification
   if (uMsg == WM_TASKBARCREATED) {
-    Taskbar.Create(GetWindowHandle(), nullptr, TAIGA_APP_TITLE);
+    taskbar.Create(GetWindowHandle(), kAppSysTrayId, nullptr, TAIGA_APP_TITLE);
 
   // Windows 7 taskbar interface
   } else if (uMsg == WM_TASKBARBUTTONCREATED) {
-    TaskbarList.Initialize(GetWindowHandle());
+    taskbar_list.Initialize(GetWindowHandle());
 
   // Taskbar callback
   } else if (uMsg == WM_TASKBARCALLBACK) {
@@ -699,29 +700,29 @@ void MainDialog::OnTaskbarCallback(UINT uMsg, LPARAM lParam) {
         break;
       }
       case NIN_BALLOONTIMEOUT: {
-        Taiga.current_tip_type = taiga::kTipTypeDefault;
+        taskbar.tip_type = TipType::Default;
         break;
       }
       case NIN_BALLOONUSERCLICK: {
-        switch (Taiga.current_tip_type) {
-          case taiga::kTipTypeNowPlaying:
+        switch (taskbar.tip_type) {
+          case TipType::NowPlaying:
             navigation.SetCurrentPage(kSidebarItemNowPlaying);
             break;
-          case taiga::kTipTypeSearch:
+          case TipType::Search:
             ExecuteAction(L"SearchAnime(" + CurrentEpisode.anime_title() + L")");
             break;
-          case taiga::kTipTypeTorrent:
+          case TipType::Torrent:
             navigation.SetCurrentPage(kSidebarItemFeeds);
             break;
-          case taiga::kTipTypeUpdateFailed:
+          case TipType::UpdateFailed:
             History.queue.Check(false);
             break;
-          case taiga::kTipTypeNotApproved:
+          case TipType::NotApproved:
             navigation.SetCurrentPage(kSidebarItemHistory);
             break;
         }
         ActivateWindow(GetWindowHandle());
-        Taiga.current_tip_type = taiga::kTipTypeDefault;
+        taskbar.tip_type = TipType::Default;
         break;
       }
       case WM_LBUTTONUP:
@@ -780,7 +781,7 @@ void MainDialog::UpdateControlPositions(const SIZE* size) {
   // Resize treeview
   if (treeview.IsVisible()) {
     win::Rect rect_tree(rect_sidebar_);
-    rect_tree.Inflate(-ScaleX(win::kControlMargin), -ScaleY(win::kControlMargin));
+    rect_tree.Inflate(-ScaleX(kControlMargin), -ScaleY(kControlMargin));
     treeview.SetPosition(nullptr, rect_tree);
   }
 
@@ -850,7 +851,7 @@ void MainDialog::UpdateTip() {
            PushString(L" #", anime::GetEpisodeRange(CurrentEpisode));
   }
 
-  Taskbar.Modify(tip.c_str());
+  taskbar.Modify(tip.c_str());
 }
 
 void MainDialog::UpdateTitle() {
@@ -956,18 +957,18 @@ void MainDialog::Navigation::RefreshSearchText(int previous_page) {
   switch (current_page_) {
     case kSidebarItemAnimeList:
     case kSidebarItemSeasons:
-      parent->search_bar.mode = kSearchModeService;
+      parent->search_bar.mode = SearchMode::Service;
       cue_text = L"Filter list or search " + taiga::GetCurrentService()->name();
       break;
     case kSidebarItemNowPlaying:
     case kSidebarItemHistory:
     case kSidebarItemStats:
     case kSidebarItemSearch:
-      parent->search_bar.mode = kSearchModeService;
+      parent->search_bar.mode = SearchMode::Service;
       cue_text = L"Search " + taiga::GetCurrentService()->name() + L" for anime";
       break;
     case kSidebarItemFeeds:
-      parent->search_bar.mode = kSearchModeFeed;
+      parent->search_bar.mode = SearchMode::Feed;
       cue_text = L"Search for torrents";
       break;
   }

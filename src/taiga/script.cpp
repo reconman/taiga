@@ -1,6 +1,6 @@
 /*
 ** Taiga
-** Copyright (C) 2010-2014, Eren Okka
+** Copyright (C) 2010-2017, Eren Okka
 ** 
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License as published by
@@ -23,13 +23,14 @@
 #include "library/anime_db.h"
 #include "library/anime_episode.h"
 #include "library/anime_util.h"
-#include "sync/hummingbird_util.h"
+#include "sync/kitsu_util.h"
 #include "sync/myanimelist_util.h"
 #include "sync/sync.h"
 #include "taiga/dummy.h"
 #include "taiga/script.h"
 #include "taiga/settings.h"
 #include "taiga/taiga.h"
+#include "track/media.h"
 #include "ui/ui.h"
 
 // The idea behind Taiga's script functions is borrowed from Mp3tag, which
@@ -389,17 +390,17 @@ std::wstring ReplaceVariables(std::wstring str, const anime::Episode& episode,
           REPLACE(L"folder", ENCODE(folder));
           REPLACE(L"user", ENCODE(taiga::GetCurrentUsername()));
           REPLACE(L"manual", is_manual ? L"true" : L"");
-          switch (Taiga.play_status) {
-            case taiga::kPlayStatusStopped: REPLACE(L"playstatus", L"stopped"); break;
-            case taiga::kPlayStatusPlaying: REPLACE(L"playstatus", L"playing"); break;
-            case taiga::kPlayStatusUpdated: REPLACE(L"playstatus", L"updated"); break;
+          switch (MediaPlayers.play_status) {
+            case track::recognition::PlayStatus::Stopped: REPLACE(L"playstatus", L"stopped"); break;
+            case track::recognition::PlayStatus::Playing: REPLACE(L"playstatus", L"playing"); break;
+            case track::recognition::PlayStatus::Updated: REPLACE(L"playstatus", L"updated"); break;
           }
           switch (taiga::GetCurrentServiceId()) {
             case sync::kMyAnimeList:
               REPLACE(L"animeurl", ENCODE(sync::myanimelist::GetAnimePage(*anime_item)));
               break;
-            case sync::kHummingbird:
-              REPLACE(L"animeurl", ENCODE(sync::hummingbird::GetAnimePage(*anime_item)));
+            case sync::kKitsu:
+              REPLACE(L"animeurl", ENCODE(sync::kitsu::GetAnimePage(*anime_item)));
               break;
           }
         } else {

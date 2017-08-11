@@ -1,6 +1,6 @@
 /*
 ** Taiga
-** Copyright (C) 2010-2014, Eren Okka
+** Copyright (C) 2010-2017, Eren Okka
 ** 
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License as published by
@@ -45,6 +45,10 @@ void Response::Clear() {
   body.clear();
 }
 
+unsigned int Response::GetStatusCategory() const {
+  return code - (code % 100);
+}
+
 std::wstring GenerateRequestId() {
   // Each HTTP request must have a unique ID, as there are many parts of the
   // application that rely on this assumption.
@@ -57,7 +61,7 @@ Client::Client(const Request& request)
       auto_redirect_(true),
       busy_(false),
       cancel_(false),
-      content_encoding_(kContentEncodingNone),
+      content_encoding_(ContentEncoding::None),
       content_length_(0),
       current_length_(0),
       curl_handle_(nullptr),
@@ -109,7 +113,7 @@ void Client::Cleanup(bool reuse) {
   // Reset variables
   busy_ = false;
   cancel_ = false;
-  content_encoding_ = kContentEncodingNone;
+  content_encoding_ = ContentEncoding::None;
   content_length_ = 0;
   current_length_ = 0;
 }

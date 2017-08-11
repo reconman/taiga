@@ -1,6 +1,6 @@
 /*
 ** Taiga
-** Copyright (C) 2010-2014, Eren Okka
+** Copyright (C) 2010-2017, Eren Okka
 ** 
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU General Public License as published by
@@ -15,6 +15,12 @@
 ** You should have received a copy of the GNU General Public License
 ** along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
+
+#include <windows.h>
+#include <uxtheme.h>
+
+#include <windows/win/common_dialogs.h>
+#include <windows/win/version.h>
 
 #include "base/base64.h"
 #include "base/crypto.h"
@@ -41,7 +47,6 @@
 #include "ui/menu.h"
 #include "ui/theme.h"
 #include "ui/ui.h"
-#include "win/win_commondialog.h"
 
 namespace ui {
 
@@ -67,7 +72,7 @@ void SettingsPage::Create() {
     SETRESOURCEID(kSettingsPageRecognitionStream, IDD_SETTINGS_RECOGNITION_STREAM);
     SETRESOURCEID(kSettingsPageServicesMain, IDD_SETTINGS_SERVICES_MAIN);
     SETRESOURCEID(kSettingsPageServicesMal, IDD_SETTINGS_SERVICES_MAL);
-    SETRESOURCEID(kSettingsPageServicesHummingbird, IDD_SETTINGS_SERVICES_HUMMINGBIRD);
+    SETRESOURCEID(kSettingsPageServicesKitsu, IDD_SETTINGS_SERVICES_KITSU);
     SETRESOURCEID(kSettingsPageSharingHttp, IDD_SETTINGS_SHARING_HTTP);
     SETRESOURCEID(kSettingsPageSharingMirc, IDD_SETTINGS_SHARING_MIRC);
     SETRESOURCEID(kSettingsPageSharingSkype, IDD_SETTINGS_SHARING_SKYPE);
@@ -107,10 +112,10 @@ BOOL SettingsPage::OnInitDialog() {
       SetDlgItemText(IDC_EDIT_PASS_MAL, Base64Decode(Settings[taiga::kSync_Service_Mal_Password]).c_str());
       break;
     }
-    // Services > Hummingbird
-    case kSettingsPageServicesHummingbird: {
-      SetDlgItemText(IDC_EDIT_USER_HUMMINGBIRD, Settings[taiga::kSync_Service_Hummingbird_Username].c_str());
-      SetDlgItemText(IDC_EDIT_PASS_HUMMINGBIRD, Base64Decode(Settings[taiga::kSync_Service_Hummingbird_Password]).c_str());
+    // Services > Kitsu
+    case kSettingsPageServicesKitsu: {
+      SetDlgItemText(IDC_EDIT_USER_KITSU, Settings[taiga::kSync_Service_Kitsu_Username].c_str());
+      SetDlgItemText(IDC_EDIT_PASS_KITSU, Base64Decode(Settings[taiga::kSync_Service_Kitsu_Password]).c_str());
       break;
     }
 
@@ -216,12 +221,11 @@ BOOL SettingsPage::OnInitDialog() {
         header.SetWindowHandle(nullptr);
       }
       for (size_t i = 0; i < MediaPlayers.items.size(); i++) {
-        if (MediaPlayers.items[i].mode == kMediaModeWebBrowser)
+        if (MediaPlayers.items[i].type == anisthesia::PlayerType::WebBrowser)
           continue;
-        BOOL player_available = MediaPlayers.items[i].GetPath().empty() ? FALSE : TRUE;
-        list.InsertItem(i, 0, ui::kIcon16_AppGray - player_available, 0, nullptr,
-                        MediaPlayers.items[i].name.c_str(), i);
-        list.SetCheckState(i, MediaPlayers.items[i].enabled);
+        int j = list.InsertItem(i, 0, ui::kIcon16_AppBlue, 0, nullptr,
+                                StrToWstr(MediaPlayers.items[i].name).c_str(), i);
+        list.SetCheckState(j, MediaPlayers.items[i].enabled);
       }
       list.SetColumnWidth(0, LVSCW_AUTOSIZE_USEHEADER);
       list.SetWindowHandle(nullptr);
@@ -255,9 +259,11 @@ BOOL SettingsPage::OnInitDialog() {
       list.InsertItem(i++, 0, ui::kIcon16_AppBlue, 0, nullptr, L"Anime News Network", taiga::kStream_Ann);
       list.InsertItem(i++, 0, ui::kIcon16_AppBlue, 0, nullptr, L"Crunchyroll", taiga::kStream_Crunchyroll);
       list.InsertItem(i++, 0, ui::kIcon16_AppBlue, 0, nullptr, L"DAISUKI", taiga::kStream_Daisuki);
+      list.InsertItem(i++, 0, ui::kIcon16_AppBlue, 0, nullptr, L"HIDIVE", taiga::kStream_Hidive);
       list.InsertItem(i++, 0, ui::kIcon16_AppBlue, 0, nullptr, L"Plex Web App", taiga::kStream_Plex);
       list.InsertItem(i++, 0, ui::kIcon16_AppBlue, 0, nullptr, L"Veoh", taiga::kStream_Veoh);
       list.InsertItem(i++, 0, ui::kIcon16_AppBlue, 0, nullptr, L"VIZ", taiga::kStream_Viz);
+      list.InsertItem(i++, 0, ui::kIcon16_AppBlue, 0, nullptr, L"VRV", taiga::kStream_Vrv);
       list.InsertItem(i++, 0, ui::kIcon16_AppBlue, 0, nullptr, L"Wakanim", taiga::kStream_Wakanim);
       list.InsertItem(i++, 0, ui::kIcon16_AppBlue, 0, nullptr, L"YouTube", taiga::kStream_Youtube);
       for (int i = 0; i < list.GetItemCount(); ++i) {
@@ -305,14 +311,19 @@ BOOL SettingsPage::OnInitDialog() {
 
     // Torrents > Discovery
     case kSettingsPageTorrentsDiscovery: {
+      AddComboString(IDC_COMBO_TORRENT_SOURCE, L"https://anidex.info/rss?cat=1&lang_id=1");
       AddComboString(IDC_COMBO_TORRENT_SOURCE, L"https://feeds.feedburner.com/anime-rss-atom-feeds?format=xml");
       AddComboString(IDC_COMBO_TORRENT_SOURCE, L"http://haruhichan.com/feed/feed.php?mode=rss");
+      AddComboString(IDC_COMBO_TORRENT_SOURCE, L"http://horriblesubs.info/rss.php?res=all");
+      AddComboString(IDC_COMBO_TORRENT_SOURCE, L"https://nyaa.pantsu.cat/feed?c=3_5");
+      AddComboString(IDC_COMBO_TORRENT_SOURCE, L"https://nyaa.si/rss?c=1_2&f=0");
+      AddComboString(IDC_COMBO_TORRENT_SOURCE, L"http://tracker.minglong.org/rss.xml");
       AddComboString(IDC_COMBO_TORRENT_SOURCE, L"https://tokyotosho.info/rss.php?filter=1,11&zwnj=0");
-      AddComboString(IDC_COMBO_TORRENT_SOURCE, L"https://www.nyaa.se/?page=rss&cats=1_37&filter=0");
-      AddComboString(IDC_COMBO_TORRENT_SOURCE, L"https://www.nyaa.se/?page=rss&cats=1_37&filter=2");
+      AddComboString(IDC_COMBO_TORRENT_SOURCE, L"https://www.shanaproject.com/feeds/site/");
       SetDlgItemText(IDC_COMBO_TORRENT_SOURCE, Settings[taiga::kTorrent_Discovery_Source].c_str());
-      AddComboString(IDC_COMBO_TORRENT_SEARCH, L"https://www.nyaa.se/?page=rss&cats=1_37&filter=0&term=%title%");
-      AddComboString(IDC_COMBO_TORRENT_SEARCH, L"https://www.nyaa.se/?page=rss&cats=1_37&filter=2&term=%title%");
+      AddComboString(IDC_COMBO_TORRENT_SEARCH, L"https://anidex.info/rss?cat=1&lang_id=1&q=%title%");
+      AddComboString(IDC_COMBO_TORRENT_SEARCH, L"https://nyaa.pantsu.cat/feed?c=3_5&q=%title%");
+      AddComboString(IDC_COMBO_TORRENT_SEARCH, L"https://nyaa.si/rss?c=1_2&f=0&q=%title%");
       SetDlgItemText(IDC_COMBO_TORRENT_SEARCH, Settings[taiga::kTorrent_Discovery_SearchUrl].c_str());
       CheckDlgButton(IDC_CHECK_TORRENT_AUTOCHECK, Settings.GetBool(taiga::kTorrent_Discovery_AutoCheckEnabled));
       SendDlgItemMessage(IDC_SPIN_TORRENT_INTERVAL, UDM_SETRANGE32, 10, 3600);
@@ -420,11 +431,12 @@ BOOL SettingsPage::OnInitDialog() {
         {taiga::kLibrary_FileSizeThreshold, {L"", L"Library / File size threshold"}},
         {taiga::kRecognition_IgnoredStrings, {L"", L"Recognition / Ignored strings"}},
         {taiga::kRecognition_LookupParentDirectories, {L"", L"Recognition / Look up parent directories"}},
-        {taiga::kRecognition_MediaPlayerDetectionMethod, {L"", L"Recognition / Media player detection method"}},
-        {taiga::kRecognition_BrowserDetectionMethod, {L"", L"Recognition / Web browser detection method"}},
-        {taiga::kSync_Service_Hummingbird_UseHttps, {L"", L"Services / Use HTTPS connections for Hummingbird"}},
-        {taiga::kSync_Service_Mal_UseHttps, {L"", L"Services / Use HTTPS connections for MyAnimeList"}},
+        {taiga::kRecognition_DetectionInterval, {L"", L"Recognition / Media detection interval"}},
+        {taiga::kSync_Service_Kitsu_PartialLibrary, {L"", L"Services / Kitsu / Download partial library"}},
+        {taiga::kSync_Service_Kitsu_UseHttps, {L"", L"Services / Kitsu / Use HTTPS connections"}},
+        {taiga::kSync_Service_Mal_UseHttps, {L"", L"Services / MyAnimeList / Use HTTPS connections"}},
         {taiga::kTorrent_Filter_ArchiveMaxCount, {L"", L"Torrents / Archive limit"}},
+        {taiga::kTorrent_Download_UseMagnet, {L"", L"Torrents / Use magnet links if available"}},
       });
       win::ListView list = GetDlgItem(IDC_LIST_ADVANCED_SETTINGS);
       list.SetExtendedStyle(LVS_EX_DOUBLEBUFFER | LVS_EX_FULLROWSELECT | LVS_EX_INFOTIP | LVS_EX_LABELTIP);
@@ -460,7 +472,7 @@ INT_PTR SettingsPage::DialogProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPa
       if (::GetWindowLong(hwnd_static, GWL_EXSTYLE) & WS_EX_TRANSPARENT) {
         ::SetBkMode(hdc, TRANSPARENT);
         ::SetTextColor(hdc, ::GetSysColor(COLOR_GRAYTEXT));
-        return reinterpret_cast<INT_PTR>(::GetSysColorBrush(COLOR_WINDOW));
+        return reinterpret_cast<INT_PTR>(::GetStockObject(HOLLOW_BRUSH));
       }
       break;
     }
@@ -475,19 +487,19 @@ BOOL SettingsPage::OnCommand(WPARAM wParam, LPARAM lParam) {
       switch (LOWORD(wParam)) {
         // Edit format
         case IDC_BUTTON_FORMAT_HTTP:
-          DlgFormat.mode = kFormatModeHttp;
+          DlgFormat.mode = FormatDialogMode::Http;
           DlgFormat.Create(IDD_FORMAT, parent->GetWindowHandle(), true);
           return TRUE;
         case IDC_BUTTON_FORMAT_MIRC:
-          DlgFormat.mode = kFormatModeMirc;
+          DlgFormat.mode = FormatDialogMode::Mirc;
           DlgFormat.Create(IDD_FORMAT, parent->GetWindowHandle(), true);
           return TRUE;
         case IDC_BUTTON_FORMAT_SKYPE:
-          DlgFormat.mode = kFormatModeSkype;
+          DlgFormat.mode = FormatDialogMode::Skype;
           DlgFormat.Create(IDD_FORMAT, parent->GetWindowHandle(), true);
           return TRUE;
         case IDC_BUTTON_FORMAT_TWITTER:
-          DlgFormat.mode = kFormatModeTwitter;
+          DlgFormat.mode = FormatDialogMode::Twitter;
           DlgFormat.Create(IDD_FORMAT, parent->GetWindowHandle(), true);
           return TRUE;
 
@@ -528,7 +540,7 @@ BOOL SettingsPage::OnCommand(WPARAM wParam, LPARAM lParam) {
             CheckDlgButton(IDC_CHECK_CACHE2, FALSE);
           }
           if (IsDlgButtonChecked(IDC_CHECK_CACHE3)) {
-            std::wstring path = taiga::GetPath(taiga::kPathFeed);
+            std::wstring path = taiga::GetPath(taiga::Path::Feed);
             DeleteFolder(path);
             CheckDlgButton(IDC_CHECK_CACHE3, FALSE);
           }
@@ -725,8 +737,8 @@ BOOL SettingsPage::OnCommand(WPARAM wParam, LPARAM lParam) {
               }
             }
             if (!parsed) {
-              LOG(LevelError, metadata);
-              LOG(LevelError, data);
+              LOGE(metadata);
+              LOGE(data);
               ui::DisplayErrorMessage(
                   L"Could not parse the filter string. It may be missing characters, "
                   L"or encoded with an incompatible version of the application.",
@@ -739,7 +751,7 @@ BOOL SettingsPage::OnCommand(WPARAM wParam, LPARAM lParam) {
         case 107: {
           std::wstring data;
           Aggregator.filter_manager.Export(data, parent->feed_filters_);
-          std::wstring metadata = Taiga.version;
+          std::wstring metadata = StrToWstr(Taiga.version.str());
           InputDialog dlg;
           StringCoder coder;
           if (coder.Encode(metadata, data, dlg.text)) {
@@ -817,7 +829,7 @@ LRESULT SettingsPage::OnNotify(int idCtrl, LPNMHDR pnmh) {
     case NM_RETURN: {
       switch (pnmh->idFrom) {
         // Execute link
-        case IDC_LINK_ACCOUNT_HUMMINGBIRD:
+        case IDC_LINK_ACCOUNT_KITSU:
         case IDC_LINK_ACCOUNT_MAL:
         case IDC_LINK_TWITTER: {
           PNMLINK pNMLink = reinterpret_cast<PNMLINK>(pnmh);
@@ -887,9 +899,6 @@ LRESULT SettingsPage::OnNotify(int idCtrl, LPNMHDR pnmh) {
         list.GetItemText(lpnmitem->iItem, 0, buffer);
         Execute(buffer);
         list.SetWindowHandle(nullptr);
-      // Media players
-      } else if (lpnmitem->hdr.hwndFrom == GetDlgItem(IDC_LIST_MEDIA)) {
-        Execute(MediaPlayers.items[lpnmitem->iItem].GetPath());
       // Streaming media providers
       } else if (lpnmitem->hdr.hwndFrom == GetDlgItem(IDC_LIST_STREAM_PROVIDER)) {
         const std::vector<std::wstring> links = {
@@ -925,7 +934,7 @@ LRESULT SettingsPage::OnNotify(int idCtrl, LPNMHDR pnmh) {
         auto param = list.GetItemParam(lpnmitem->iItem);
         auto& it = parent->advanced_settings_[param];
         if (param == taiga::kSync_Notify_Format) {
-          DlgFormat.mode = kFormatModeBalloon;
+          DlgFormat.mode = FormatDialogMode::Balloon;
           if (DlgFormat.Create(IDD_FORMAT, parent->GetWindowHandle(), true) == IDOK) {
             it.first = Settings.GetWstr(taiga::kSync_Notify_Format);
             list.SetItem(lpnmitem->iItem, 1, it.first.c_str());
